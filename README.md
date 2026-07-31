@@ -81,17 +81,85 @@ check one of those executions without an account, a key or a payment:
 outlayer-verify job 221092 --network mainnet
 ```
 
+<details>
+<summary>The whole output of that command &mdash; click to expand</summary>
+
 ```
+$ outlayer-verify job 221092 --network mainnet
+
+▸ Fetching the record for task 221092
+  ✓ record found
+▸ Fetching Intel collateral for platform b0c06f000000, valid at 2026-07-31T09:36:32Z
+  ✓ published by worker.outlayer.near, valid 2026-07-21T00:13:24Z .. 2026-08-19T23:51:19Z
+▸ Asking worker.outlayer.near whether these measurements are approved
+  ✓ the chain recognises this build
+
+── Record as published ─────────────────────────────────────────────────────────────────────────
   task id                221092
+  task type              execute
+  executed at            2026-07-31T09:36:32Z (1785490592)
+  format                 V1 — commits to caller, project, secrets, timestamp and payment
+  network                mainnet
+  call id                8fdb7a5b-579f-4854-91f1-659a9a8e731c
   caller                 ref-labs.near
   project                price-oracle.near/price-oracle
-  secrets ref            price-oracle.near/oracle
+  build target           wasm32-wasip2
   wasm sha256            3ff2c6fb9241ad4f5a3a40298b78d68b4da31b6760ecea3d5253579ec33809e7
-  ...
-  [ PASS     ] Authenticity   Intel signature chain valid, TCB UpToDate
-  [ PASS     ] Identity       measurements approved on worker.outlayer.near
-  [ PASS     ] Binding        report_data commits to exactly these task fields
+  input sha256           832f0aa124f7f4c39c5b47e370680356c0ec105a4df232ea1cb91bf2954e6f2f
+  output sha256          7c27847fa9387d25f5f459ddb9e55423a8cf53ef724eb93286d2f369d093e1c5
+  attached payment       0
+  secrets ref            price-oracle.near/oracle
+
+── Inside the signed quote ─────────────────────────────────────────────────────────────────────
+  read from the quote AFTER Intel's signature was checked, not from the record
+  size                   5006 bytes
+  platform (FMSPC)       b0c06f000000 — taken from the signed PCK certificate
+  MRTD                   7fe60787222bd394cb516abca2435f22f035ab2cc9c0a4b4b3b148e46297f3d931a237b72f359052c6e657d8c1409173
+  RTMR0                  530526e456733dff151712d1db1728cfc3bc85ed0a6c13653add2e644c57068009595b935f6a50ce4a714bad2b33bc8e
+  RTMR1                  e8601b64942f9f7a66f4d8f5727c0a7d4a71953cfc3c7d13e043f8ddf4f94d2358afd17e01f567a5d8209f3cf7479489
+  RTMR2                  ad1ed113dbecf8516b1ae1ba33a5188d61dd4a4baf5c181c1dd3c61ed8b91a624b5ac2242328028e540d9a2fb4f2dbfe
+  RTMR3                  e1c2f169733c62b61dd28281ff8a45b8afb9f41f39ca57643b62f550382736e1e5c61f02ddc931928b0881d76b47ddc0
+  report_data[..32]      fb894ba0011caafe2427f7d4ea88cd4e92ca6123e63beea9fbc2467ed8e1b232
+  report_data[32..]      0000000000000000000000000000000000000000000000000000000000000000 (zero,
+                         as the format requires)
+
+── Intel collateral used ───────────────────────────────────────────────────────────────────────
+  Intel-signed TCB data; altering it breaks the chain, so its source cannot change the verdict
+  published by           worker.outlayer.near
+  at block               209222035
+  sha256                 4ce45a28f0227cf7b517151c9174f5a8a23f68cba45ef1bd942e74fc97f86bb9
+  valid from             2026-07-21T00:13:24Z
+  valid until            2026-08-19T23:51:19Z
+  covers execution       yes — this execution falls inside the validity window
+  recovered from         sync
+
+── Checks ──────────────────────────────────────────────────────────────────────────────────────
+
+  [ PASS     ] Authenticity  is this a genuine Intel TDX quote?
+                         Intel signature chain valid, TCB UpToDate
+    Intel TCB status     UpToDate
+
+  [ PASS     ] Identity  is this code approved on chain?
+                         measurements approved on worker.outlayer.near
+
+  [ PASS     ] Binding  does the quote cover this execution?
+                         report_data commits to exactly these task fields
+    fields hash to       fb894ba0011caafe2427f7d4ea88cd4e92ca6123e63beea9fbc2467ed8e1b232
+    quote commits to     fb894ba0011caafe2427f7d4ea88cd4e92ca6123e63beea9fbc2467ed8e1b232 —
+                         identical
+
+  PROVEN  every check passed: this input produced this output, inside genuine
+          Intel TDX hardware, running code approved on chain.
+
+  The request and response bytes were not checked — only their hashes are stored for HTTPS
+  calls. Pass --input and --output, or use `outlayer-verify run`.
+
+  Tip: --bundle proof.json saves the record, the collateral and the payloads into one file that
+  re-verifies offline, years from now, with no network and no dependence on anyone still being
+  around.
 ```
+
+</details>
 
 Three layers pass. The request and the response are not checked, because this was an HTTPS call and
 only their hashes were ever stored — the tool says so rather than implying a completeness it does
@@ -105,15 +173,108 @@ live in the transaction forever.
 outlayer-verify tx HBZiBDSwok8mfSpQi7cvUHvgb8GHFK8xefvj5U1k29N --network testnet
 ```
 
+<details>
+<summary>The whole output &mdash; all five checks, including the payload bytes</summary>
+
 ```
+$ outlayer-verify tx HBZiBDSwok8mfSpQi7cvUHvgb8GHFK8xefvj5U1k29N --network testnet
+
+▸ Fetching the record for transaction HBZiBDSwok8mfSpQi7cvUHvgb8GHFK8xefvj5U1k29N
+  ✓ record found: task 2008
 ▸ Recovering the request and response from the chain
   ✓ both recovered from the transaction
+▸ Fetching Intel collateral for platform b0c06f000000, valid at 2026-07-27T23:55:43Z
+  ✓ published by worker.outlayer.testnet, valid 2026-07-21T00:13:24Z .. 2026-08-19T23:51:19Z
+▸ Asking worker.outlayer.testnet whether these measurements are approved
+  ✓ the chain recognises this build
 
-  [ PASS     ] Input   content   {"city":"Buenos Aires","units":"metric"}
-  [ PASS     ] Output  content   {"city":"Buenos Aires","country":"AR","temperature":16.53, ...}
+── Record as published ─────────────────────────────────────────────────────────────────────────
+  task id                2008
+  task type              execute
+  executed at            2026-07-27T23:55:43Z (1785196543)
+  format                 V1 — commits to caller, project, secrets, timestamp and payment
+  network                testnet
+  transaction            HBZiBDSwok8mfSpQi7cvUHvgb8GHFK8xefvj5U1k29N
+  block height           261245882
+  caller                 maguila.testnet
+  source repo            https://github.com/zavodil/weather-ark
+  commit                 main
+  build target           wasm32-wasip2
+  wasm sha256            788e865fffddb333cf36c29b7f2251a9c3c4da8306e5527d2b1e8c7045ec4ff0
+  input sha256           48592c499d13432c061534fafc8e6bd6353aeec799e6264a915805f3718344b0
+  output sha256          ca6e60c897ffa2b10211bb75e5e7cfa2f8ddc0ab1727097e35b383c1ea919a29
+  attached payment       0
+  secrets ref            zavodil2.testnet/default
 
-  PROVEN  every check passed
+── Inside the signed quote ─────────────────────────────────────────────────────────────────────
+  read from the quote AFTER Intel's signature was checked, not from the record
+  size                   5006 bytes
+  platform (FMSPC)       b0c06f000000 — taken from the signed PCK certificate
+  MRTD                   7fe60787222bd394cb516abca2435f22f035ab2cc9c0a4b4b3b148e46297f3d931a237b72f359052c6e657d8c1409173
+  RTMR0                  530526e456733dff151712d1db1728cfc3bc85ed0a6c13653add2e644c57068009595b935f6a50ce4a714bad2b33bc8e
+  RTMR1                  e8601b64942f9f7a66f4d8f5727c0a7d4a71953cfc3c7d13e043f8ddf4f94d2358afd17e01f567a5d8209f3cf7479489
+  RTMR2                  ad1ed113dbecf8516b1ae1ba33a5188d61dd4a4baf5c181c1dd3c61ed8b91a624b5ac2242328028e540d9a2fb4f2dbfe
+  RTMR3                  655000c93bb55ab73c39472d022abbe96a46c1d4bbbb774e49ca896bfdbfb0e7fbc5422f8de3ef8c0aa060e38cf4aa6f
+  report_data[..32]      1b91f4f71b77abae936bf0003fd07bf9f7d2c52195aca2f623aa2e78607eb1b1
+  report_data[32..]      0000000000000000000000000000000000000000000000000000000000000000 (zero,
+                         as the format requires)
+
+── Intel collateral used ───────────────────────────────────────────────────────────────────────
+  Intel-signed TCB data; altering it breaks the chain, so its source cannot change the verdict
+  published by           worker.outlayer.testnet
+  at block               261662085
+  sha256                 4ce45a28f0227cf7b517151c9174f5a8a23f68cba45ef1bd942e74fc97f86bb9
+  valid from             2026-07-21T00:13:24Z
+  valid until            2026-08-19T23:51:19Z
+  covers execution       yes — this execution falls inside the validity window
+  recovered from         sync
+
+── Checks ──────────────────────────────────────────────────────────────────────────────────────
+
+  [ PASS     ] Authenticity  is this a genuine Intel TDX quote?
+                         Intel signature chain valid, TCB UpToDate
+    Intel TCB status     UpToDate
+
+  [ PASS     ] Identity  is this code approved on chain?
+                         measurements approved on worker.outlayer.testnet
+
+  [ PASS     ] Binding  does the quote cover this execution?
+                         report_data commits to exactly these task fields
+    fields hash to       1b91f4f71b77abae936bf0003fd07bf9f7d2c52195aca2f623aa2e78607eb1b1
+    quote commits to     1b91f4f71b77abae936bf0003fd07bf9f7d2c52195aca2f623aa2e78607eb1b1 —
+                         identical
+
+  [ PASS     ] Input  do the request bytes match what was attested?
+                         recovered from the transaction
+    content              {"city":"Buenos Aires","units":"metric"}
+    hashes to            48592c499d13432c061534fafc8e6bd6353aeec799e6264a915805f3718344b0
+    attested             48592c499d13432c061534fafc8e6bd6353aeec799e6264a915805f3718344b0
+                         the attested value is itself inside the signed quote — it is part of
+                         the commitment checked by Binding above, so matching it means matching
+                         what the TEE signed
+
+  [ PASS     ] Output  do the response bytes match what was attested?
+                         recovered from the transaction
+    content              {"city":"Buenos Aires","country":"AR","description":"overcast
+                         clouds","humidity":89,"temperature":16.53,"temperature_unit":"C","wind_speed":1.86}
+    hashes to            ca6e60c897ffa2b10211bb75e5e7cfa2f8ddc0ab1727097e35b383c1ea919a29
+    attested             ca6e60c897ffa2b10211bb75e5e7cfa2f8ddc0ab1727097e35b383c1ea919a29
+                         the attested value is itself inside the signed quote — it is part of
+                         the commitment checked by Binding above, so matching it means matching
+                         what the TEE signed
+
+  PROVEN  every check passed: this input produced this output, inside genuine
+          Intel TDX hardware, running code approved on chain.
+
+  Tip: --bundle proof.json saves the record, the collateral and the payloads into one file that
+  re-verifies offline, years from now, with no network and no dependence on anyone still being
+  around.
 ```
+
+</details>
+
+Here all five checks run: the request and the response come out of the transaction itself, so the
+bytes are compared, not just the hashes the quote commits to.
 
 **Your own call, with secrets.** `--secrets-ref` names a secret profile the program may read; it is
 recorded in the attestation, so the proof shows what the execution was allowed to touch:
