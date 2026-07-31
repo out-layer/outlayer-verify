@@ -26,14 +26,14 @@ pub fn intel_root_fingerprint() -> String {
 /// Reproduced from `dcap-qvl`'s own documentation of `verify_impl` rather than paraphrased, because
 /// a list of checks that does not match the code is worse than no list.
 pub const CHECKS_PERFORMED: [&str; 8] = [
-    "TCB Info signature: Intel root -> TCB signing certificate -> the TCB Info document",
-    "QE Identity signature: Intel root -> QE Identity signing certificate -> the document",
-    "PCK certificate chain: Intel root -> PCK CA -> the platform's PCK certificate",
-    "QE Report signature: the PCK certificate signs the quoting enclave's report",
-    "QE Report content: its hash covers the attestation key and auth data",
-    "QE Report policy: its fields satisfy the QE Identity policy",
-    "ISV Report signature: the attestation key signs the enclave's own report",
-    "Platform TCB match: the PCK certificate's CPU_SVN, PCE_SVN and FMSPC against TCB Info",
+    "TCB Info document signed by Intel",
+    "QE Identity document signed by Intel",
+    "PCK certificate chains to the Intel root",
+    "QE report signed by that PCK certificate",
+    "QE report hash covers the attestation key",
+    "QE report satisfies the QE Identity policy",
+    "enclave report signed by the attestation key",
+    "platform TCB (CPU_SVN, PCE_SVN, FMSPC) matches TCB Info",
 ];
 
 /// Measurements of the code that ran, decoded from a quote. Lowercase hex.

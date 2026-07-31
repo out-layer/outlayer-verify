@@ -277,29 +277,21 @@ pub fn full(style: &Style, att: &Attestation, v: &Verification, ev: &Evidence, n
         kv("  advisories", &v.advisory_ids.join(", "));
     }
 
-    if v.authenticity.is_pass() || v.tcb_status.is_some() {
+    if v.tcb_status.is_some() {
         kv("  trust anchor", &format!(
-            "sha256 {} — CN=Intel SGX Root CA",
+            "sha256 {} — CN=Intel SGX Root CA, compiled in",
             outlayer_verify_core::quote::intel_root_fingerprint()
         ));
-        // Deliberately not "these eight checks passed, tick tick tick": the library returns one
-        // result for the lot, so claiming per-step evidence would be inventing it. What is true is
-        // that all of them had to succeed for this line to say PASS.
-        para(VALUE_COLUMN, &style.dim(
-            "Intel's verifier ran against that root and every one of its checks succeeded — PCK \
-             certificate chain, QE report and its policy, the attestation key's signature over \
-             the enclave report, TCB Info, QE Identity and the CRLs. They are reported as one \
-             result, not step by step; README lists what each one is.",
-        ));
-        // A hash a program prints about itself is worth exactly what the program is worth. Saying
-        // so is the difference between disclosure and theatre.
-        para(VALUE_COLUMN, &style.dim(
-            "That fingerprint tells you which anchor THIS BUILD used, nothing more — a program \
-             can print any string. It is worth checking only against a binary you trust: build \
-             from source, or compare crates/verify-core/src/\
-             Intel_SGX_Provisioning_Certification_RootCA.der with Intel's published copy at \
-             certificates.trustedservices.intel.com.",
-        ));
+    }
+    // Ticks only on a pass. The library verifies all eight or returns an error, so there is no
+    // partial state to draw — and a tick next to a check that did not run would be the one lie
+    // this whole tool exists to make impossible.
+    if v.authenticity.is_pass() {
+        let mut label = "  Intel checks";
+        for item in outlayer_verify_core::quote::CHECKS_PERFORMED {
+            kv(label, &format!("{} {item}", style.pass("✓")));
+            label = "";
+        }
     }
 
     check(style, "Identity", "is this code approved on chain?", &v.identity);

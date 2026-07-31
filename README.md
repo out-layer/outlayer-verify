@@ -81,8 +81,10 @@ The Authenticity layer is a single verdict over eight checks that all have to su
 7. **ISV Report signature** — the attestation key signs the enclave's own report
 8. **Platform TCB match** — the PCK certificate's CPU_SVN, PCE_SVN and FMSPC against TCB Info
 
-The library reports them as one result rather than step by step, so the tool says all of them
-succeeded and does not pretend to per-step evidence it does not have.
+The report ticks all eight on a pass. It does so because the library verifies all of them or returns
+an error — there is no partial state — so a tick means that check succeeded. On a failure none are
+ticked: which one broke is in the error, and a tick beside a check that did not run would be the one
+lie this tool exists to make impossible.
 
 The trust anchor is committed at
 `crates/verify-core/src/Intel_SGX_Provisioning_Certification_RootCA.der` and compiled in with
