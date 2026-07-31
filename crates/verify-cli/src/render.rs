@@ -280,7 +280,9 @@ pub fn full(style: &Style, att: &Attestation, v: &Verification, ev: &Evidence, n
     if v.authenticity.is_pass() || v.tcb_status.is_some() {
         para(VALUE_COLUMN, &style.dim("verified against this root, and nothing else:"));
         kv("  Intel root CA", &format!(
-            "sha256 {} — CN=Intel SGX Root CA, compiled into this binary, never fetched",
+            "sha256 {} — CN=Intel SGX Root CA, compiled into this binary from \
+             crates/verify-core/src/Intel_SGX_Provisioning_Certification_RootCA.der in the \
+             source tree, never fetched at runtime",
             outlayer_verify_core::quote::intel_root_fingerprint()
         ));
         para(VALUE_COLUMN + 2, &style.dim(
