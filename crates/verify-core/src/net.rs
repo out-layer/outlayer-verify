@@ -47,6 +47,23 @@ impl Network {
         }
     }
 
+    /// Archival, because ordinary nodes forget transactions after a couple of epochs and this tool
+    /// exists to check old ones.
+    pub fn archival_rpc(self) -> &'static str {
+        match self {
+            Network::Mainnet => "https://archival-rpc.mainnet.fastnear.com",
+            Network::Testnet => "https://archival-rpc.testnet.fastnear.com",
+        }
+    }
+
+    /// The contract executions are requested through.
+    pub fn outlayer_contract(self) -> &'static str {
+        match self {
+            Network::Mainnet => "outlayer.near",
+            Network::Testnet => "outlayer.testnet",
+        }
+    }
+
     /// The contract holding the approved worker measurements for this network.
     pub fn register_contract(self) -> &'static str {
         match self {
@@ -276,4 +293,94 @@ pub fn call_project(
         output: response.get("output").cloned(),
         error: response.get("error").and_then(|v| v.as_str()).map(String::from),
     })
+}
+
+/// Recover an on-chain execution's input and output from the transaction itself.
+///
+/// This is what makes a blockchain proof complete without the caller keeping anything: the request
+/// and the response are both in the transaction, permanently, so there is nothing to supply by hand.
+/// (An HTTPS call has no such record — hence `run` and `--input/--output`.)
+///
+/// Read from an archival node: ordinary RPC nodes drop transactions older than a couple of epochs,
+/// and the whole point here is checking executions from months ago.
+pub fn fetch_chain_payloads(
+    network: Network,
+    tx_hash: &str,
+    sender_account_id: &str,
+) -> Result<(Option<String>, Option<String>), String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "outlayer-verify",
+        "method": "EXPERIMENTAL_tx_status",
+        "params": [tx_hash, sender_account_id],
+    });
+
+    let response: serde_json::Value = agent()
+        .post(network.archival_rpc())
+        .send_json(request)
+        .map_err(|e| format!("archival RPC: {e}"))?
+        .into_json()
+        .map_err(|e| format!("archival RPC: response was not JSON: {e}"))?;
+
+    if let Some(error) = response.get("error") {
+        return Err(format!("archival RPC error: {}", truncate(&error.to_string())));
+    }
+    let receipts = response
+        .pointer("/result/receipts_outcome")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "transaction has no receipts".to_string())?;
+
+    // The input is announced by the contract as an `execution_requested` event, which carries the
+    // request exactly as the contract stored it — the same string the worker later hashed.
+    let mut input = None;
+    for receipt in receipts {
+        let logs = match receipt.pointer("/outcome/logs").and_then(|v| v.as_array()) {
+            Some(logs) => logs,
+            None => continue,
+        };
+        for log in logs.iter().filter_map(|l| l.as_str()) {
+            let payload = match log.strip_prefix("EVENT_JSON:") {
+                Some(rest) => rest,
+                None => continue,
+            };
+            let event: serde_json::Value = match serde_json::from_str(payload) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            if event.get("event").and_then(|e| e.as_str()) != Some("execution_requested") {
+                continue;
+            }
+            if let Some(data) = event.pointer("/data/0/request_data").and_then(|v| v.as_str()) {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                    input = parsed
+                        .get("input_data")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                }
+            }
+        }
+    }
+
+    // The output is the value the OutLayer contract returned, base64 in the receipt status.
+    let mut output = None;
+    for receipt in receipts {
+        let executor = receipt.pointer("/outcome/executor_id").and_then(|v| v.as_str());
+        if executor != Some(network.outlayer_contract()) {
+            continue;
+        }
+        if let Some(encoded) = receipt
+            .pointer("/outcome/status/SuccessValue")
+            .and_then(|v| v.as_str())
+        {
+            if let Ok(bytes) = STANDARD.decode(encoded) {
+                if let Ok(text) = String::from_utf8(bytes) {
+                    output = Some(text);
+                }
+            }
+        }
+    }
+
+    Ok((input, output))
 }

@@ -36,6 +36,13 @@ pub struct Bundle {
     pub input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<serde_json::Value>,
+    /// Payloads as they appear on chain for an on-chain execution: already strings there, kept
+    /// byte-for-byte so re-verification hashes what the chain holds rather than a re-serialisation
+    /// of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_raw: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_raw: Option<String>,
     /// The verdict at the time of writing. Informational only — `outlayer-verify bundle` recomputes
     /// it from the evidence above rather than believing this field.
     pub verification: Verification,
@@ -59,6 +66,8 @@ impl Bundle {
             measurements_approved: evidence.measurements_approved,
             input: evidence.input.clone(),
             output: evidence.output.clone(),
+            input_raw: evidence.input_raw.clone(),
+            output_raw: evidence.output_raw.clone(),
             verification,
         }
     }
@@ -72,6 +81,8 @@ impl Bundle {
             register_contract: self.register_contract.clone(),
             input: self.input.clone(),
             output: self.output.clone(),
+            input_raw: self.input_raw.clone(),
+            output_raw: self.output_raw.clone(),
         }
     }
 }

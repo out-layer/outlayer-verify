@@ -272,22 +272,22 @@ pub fn full(style: &Style, att: &Attestation, v: &Verification, network: &str) {
     }
 
     if let Some(layer) = &v.input {
-        check(style, "Input", "does your request match what was attested?", layer);
+        check(style, "Input", "do the request bytes match what was attested?", layer);
         if let Some(computed) = &v.input_hash_computed {
-            kv("  your request", computed);
+            kv("  hashes to", computed);
             kv("  attested", att.input_hash.as_deref().unwrap_or("<none>"));
         }
     }
     if let Some(layer) = &v.output {
-        check(style, "Output", "does your response match what was attested?", layer);
+        check(style, "Output", "do the response bytes match what was attested?", layer);
         if let Some(computed) = &v.output_hash_computed {
-            kv("  your response", computed);
+            kv("  hashes to", computed);
             kv("  attested", &att.output_hash);
         }
     }
 
     verdict_block(style, v);
-    scope_block(style, v, att);
+    caveats(style, v, att);
 }
 
 fn check(style: &Style, name: &str, question: &str, layer: &Layer) {
@@ -329,48 +329,38 @@ pub fn verdict_block(style: &Style, v: &Verification) {
     }
 }
 
-/// What a passing verdict deliberately does not cover.
+/// Gaps that belong to *this* verification rather than to attestation in general.
 ///
-/// Spelled out as concrete claims rather than a caveat sentence: a reader who cannot tell which
-/// question was left open will assume the proof is broader than it is.
-fn scope_block(style: &Style, v: &Verification, att: &Attestation) {
-    section(style, "What this proof does NOT cover");
-    bullet(
-        style,
-        "that the approved build came from the published source",
-        "the attestation identifies which binary ran, not which source it was compiled from — \
-         that link needs a reproducible build, which is a separate claim nobody has made here",
-    );
-    bullet(
-        style,
-        "who is allowed to approve a build",
-        "this tool reports which contract it asked; who controls that account, and under what \
-         governance, is a question to put to the operator",
-    );
-    if att.call_id.is_some() && v.input.is_none() {
-        bullet(
+/// The standing limits of the technique live in the README; repeating them under every run trains
+/// the reader to skip the block, and then the record-specific gaps below get skipped with them.
+fn caveats(style: &Style, v: &Verification, att: &Attestation) {
+    if att.transaction_hash.is_some() && v.input.is_none() {
+        println!();
+        note(
             style,
-            "the request and the response themselves",
-            "only their hashes are stored for HTTPS calls, and you did not supply the payloads — \
-             pass --input and --output, or use `outlayer-verify run`, to close that gap",
+            "The request and response could not be recovered from the transaction, so the bytes \
+             themselves were not checked — only the hashes the quote commits to.",
+        );
+    }
+    if att.call_id.is_some() && v.input.is_none() {
+        println!();
+        note(
+            style,
+            "The request and response bytes were not checked — only their hashes are stored for \
+             HTTPS calls. Pass --input and --output, or use `outlayer-verify run`.",
         );
     }
     if !v.uncovered_fields.is_empty() {
-        bullet(
+        println!();
+        note(
             style,
-            "five fields this record predates",
             &format!(
-                "{} are not part of the signed commitment in the legacy format, so the values \
-                 shown above for them are published claims rather than proven facts",
+                "This record predates the current attestation format: {} are not part of the \
+                 signed commitment, so the values shown for them are published claims.",
                 v.uncovered_fields.join(", ")
             ),
         );
     }
-}
-
-fn bullet(style: &Style, title: &str, detail: &str) {
-    println!("  {} {}", style.dim("·"), style.head(title));
-    para(4, &style.dim(detail));
 }
 
 /// One line, for scripts and for the second time you run it.

@@ -68,6 +68,15 @@ pub fn task_hash(att: &Attestation, format: Format) -> [u8; 32] {
 pub mod payload {
     use super::*;
 
+    /// SHA-256 of bytes that are already a string where they were recorded.
+    ///
+    /// On-chain executions carry their input and output as strings in the transaction itself, so
+    /// there is nothing to canonicalise: re-parsing and re-serialising them could only introduce a
+    /// difference that was never there.
+    pub fn hash_raw(value: &str) -> String {
+        hex::encode(Sha256::digest(value.as_bytes()))
+    }
+
     /// SHA-256 of the request body as the coordinator serialised it: caller's key order preserved.
     pub fn input_hash(input: &serde_json::Value) -> String {
         hex::encode(Sha256::digest(compact(input, false).as_bytes()))

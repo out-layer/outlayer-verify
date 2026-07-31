@@ -98,14 +98,26 @@ output is not a terminal, and honours `NO_COLOR`.
 
 Nothing is written to disk unless you ask for it with `--bundle`.
 
-### Keep your payloads
+### Payloads
 
-For an on-chain execution the input and output can be recovered from NEAR archival RPC forever. For
-an HTTPS call **only their hashes are ever stored** — if you did not keep the request and the
-response, that execution can never be fully verified again, by anyone, including the operator.
+For an **on-chain** execution there is nothing to keep: the request is in the contract's
+`execution_requested` event and the response is the value the contract returned, both permanently in
+the transaction. `outlayer-verify tx` reads them from an archival node and checks the bytes for you.
 
-This is why `run` exists: it performs the call and keeps both payloads, so the proof is possible at
-all. If you call the API directly, save what you sent and what you got back.
+For an **HTTPS** call only the hashes are ever stored. If you did not keep the request and the
+response, that execution can never be fully verified again — by anyone, including the operator. This
+is why `run` exists: it performs the call and keeps both payloads, so the proof is possible at all.
+If you call the API yourself, save what you sent and what you got back, and pass them later:
+
+```sh
+# run it through the tool — payloads captured automatically
+outlayer-verify run alice.testnet/my-agent --network testnet \
+  --input request.json --payment-key 'alice.testnet:4:<key>'
+
+# or verify a call you made yourself, with the payloads you kept
+outlayer-verify call c231b0f6-78d7-48f4-9c23-458b4081d84f --network testnet \
+  --input request.json --output response.json
+```
 
 ### The evidence bundle
 

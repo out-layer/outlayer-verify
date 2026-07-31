@@ -92,10 +92,16 @@ pub struct Evidence {
     /// Answer from `is_measurements_approved`, and the contract that was asked.
     pub measurements_approved: Option<bool>,
     pub register_contract: Option<String>,
-    /// The request body as sent, for callers who kept it.
+    /// The request body as sent, for HTTPS callers who kept it. Hashed the way the coordinator
+    /// serialises it.
     pub input: Option<serde_json::Value>,
     /// The response as received.
     pub output: Option<serde_json::Value>,
+    /// Payloads recovered from the chain for an on-chain execution. These are hashed exactly as
+    /// they appear on chain — they are already strings there, so no re-serialisation is involved
+    /// and none may be applied.
+    pub input_raw: Option<String>,
+    pub output_raw: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,7 +303,19 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
     };
 
     // --- Payloads --------------------------------------------------------------------------
-    if let Some(input) = &evidence.input {
+    if let Some(raw) = &evidence.input_raw {
+        let computed = preimage::payload::hash_raw(raw);
+        out.input_hash_computed = Some(computed.clone());
+        out.input = Some(match &att.input_hash {
+            Some(stored) if *stored == computed => {
+                Layer::pass(format!("recovered from the chain, sha256 {computed}"))
+            }
+            Some(stored) => Layer::fail(format!(
+                "the input recorded on chain hashes to {computed}, the attested value is {stored}"
+            )),
+            None => Layer::unproven("this record carries no input_hash".to_string()),
+        });
+    } else if let Some(input) = &evidence.input {
         let computed = preimage::payload::input_hash(input);
         out.input_hash_computed = Some(computed.clone());
         out.input = Some(match &att.input_hash {
@@ -308,7 +326,18 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
             None => Layer::unproven("this record carries no input_hash".to_string()),
         });
     }
-    if let Some(output) = &evidence.output {
+    if let Some(raw) = &evidence.output_raw {
+        let computed = preimage::payload::hash_raw(raw);
+        out.output_hash_computed = Some(computed.clone());
+        out.output = Some(if att.output_hash == computed {
+            Layer::pass(format!("recovered from the chain, sha256 {computed}"))
+        } else {
+            Layer::fail(format!(
+                "the output recorded on chain hashes to {computed}, the attested value is {}",
+                att.output_hash
+            ))
+        });
+    } else if let Some(output) = &evidence.output {
         let computed = preimage::payload::output_hash(output);
         out.output_hash_computed = Some(computed.clone());
         out.output = Some(if att.output_hash == computed {

@@ -254,6 +254,35 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
         _ => unreachable!(),
     };
 
+    // An on-chain execution carries its own payloads: the request is in the contract's
+    // `execution_requested` event and the response is the value the contract returned. Recovering
+    // them is what makes `tx` a complete proof with nothing for the caller to keep.
+    if attestation.transaction_hash.is_some() && evidence.input.is_none() {
+        let tx = attestation.transaction_hash.clone().unwrap();
+        match &attestation.caller_account_id {
+            Some(caller) => {
+                render::step(style, "Recovering the request and response from the chain");
+                match net::fetch_chain_payloads(network, &tx, caller) {
+                    Ok((input, output)) => {
+                        match (&input, &output) {
+                            (Some(_), Some(_)) => render::step_ok(style, "both recovered from the transaction"),
+                            (Some(_), None) => render::step_warn(style, "request recovered, response not found in the transaction"),
+                            (None, Some(_)) => render::step_warn(style, "response recovered, request not found in the transaction"),
+                            (None, None) => render::step_warn(style, "neither payload appears in this transaction"),
+                        }
+                        evidence.input_raw = input;
+                        evidence.output_raw = output;
+                    }
+                    Err(e) => render::step_warn(style, &format!("archival lookup failed — {e}")),
+                }
+            }
+            None => render::step_warn(
+                style,
+                "the record names no caller, so the transaction cannot be looked up",
+            ),
+        }
+    }
+
     // Collateral has to match the platform named inside the signed quote, and be valid at the
     // moment the execution ran — not now.
     match &args.collateral {
