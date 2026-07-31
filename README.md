@@ -30,13 +30,19 @@ give you can change the answer":
 
 | Input | Source | Why we cannot bend it |
 |---|---|---|
-| The attestation record, including the quote | our API | the quote is signed by Intel; alter a byte and Authenticity fails |
-| Intel collateral for the right period | our API | Intel-signed too, and archived from the register contract, so it is checkable against the chain |
+| The attestation record, including the quote | our API | the quote is Intel-signed and its `report_data` binds every field in the record, so altering any of them fails a check rather than going unnoticed |
+| Intel collateral for the right period | **the register contract**, read from a NEAR archival node | our API only supplies the block number to look in, and the tool reports whether the API's own copy matched the chain's byte for byte |
 | The approved-build list | NEAR RPC | on-chain, not ours |
 | Input and output of an on-chain call | NEAR archival RPC | in the transaction, not ours |
 
 Intel's root certificate is compiled into the binary rather than fetched, which is what makes the
-first two rows safe: a chain that does not terminate at that key fails regardless of who served it.
+first row safe: a chain that does not terminate at that key fails regardless of who served it. The
+record is the artifact under scrutiny, not a statement to be believed — we can decline to serve one,
+which is an availability problem, but we cannot forge one.
+
+Even the block-number hint is checkable: point it at the wrong block and the collateral found there
+has a validity window that fails to cover the execution, which the verdict reports rather than
+swallows.
 
 None of the defaults is load-bearing either. Point the chain reads at your own node, the record at a
 coordinator you host, the collateral at your own copy — the verdict should not move:

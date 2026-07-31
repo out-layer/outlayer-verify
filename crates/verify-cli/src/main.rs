@@ -376,7 +376,7 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
                         );
                         match net::fetch_collateral(&at, &unverified.fmspc, attestation.timestamp)
                         {
-                            Ok((body, info)) => {
+                            Ok((body, mut info)) => {
                                 if info.covers_execution_time {
                                     render::step_ok(
                                         style,
@@ -388,6 +388,42 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
                                         &format!("nearest window is {} .. {} — it does NOT cover this execution", info.valid_from, info.valid_until),
                                     );
                                 }
+
+                                // Prefer the chain's own copy. Our API is then only telling the
+                                // tool which block to look in, and the collateral that decides the
+                                // verdict comes from contract state on an archival node.
+                                let mut body = body;
+                                if let Some(block) = info.block_height {
+                                    render::step(
+                                        style,
+                                        &format!(
+                                            "Reading that collateral from {} on chain, at block {block}",
+                                            at.register_contract()
+                                        ),
+                                    );
+                                    match net::fetch_collateral_from_chain(&at, &unverified.fmspc, block) {
+                                        Ok(on_chain) => {
+                                            let identical = on_chain == body;
+                                            info.api_copy_matches_chain = Some(identical);
+                                            info.read_from_chain_at_block = Some(block);
+                                            if identical {
+                                                render::step_ok(style, "byte-identical to the copy the API served");
+                                            } else {
+                                                // Not fatal — the chain's copy is the one used, and
+                                                // a forged one fails Intel's chain anyway — but it
+                                                // means our API served something else, which is
+                                                // worth knowing about loudly.
+                                                render::step_warn(style, "the API's copy DIFFERS from the chain — using the chain's");
+                                            }
+                                            body = on_chain;
+                                        }
+                                        Err(e) => render::step_warn(
+                                            style,
+                                            &format!("could not read it from chain ({e}) — falling back to the API's copy"),
+                                        ),
+                                    }
+                                }
+
                                 evidence.collateral = Some(body);
                                 evidence.collateral_info = Some(info);
                             }

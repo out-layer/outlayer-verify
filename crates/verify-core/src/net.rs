@@ -226,6 +226,8 @@ pub fn fetch_collateral(
         tx_hash: value.get("tx_hash").and_then(|v| v.as_str()).map(String::from),
         block_height: value.get("block_height").and_then(|v| v.as_u64()),
         source: string_at(&value, "source"),
+        read_from_chain_at_block: None,
+        api_copy_matches_chain: None,
     };
     Ok((body, info))
 }
@@ -451,4 +453,103 @@ pub fn fetch_chain_payloads(
     }
 
     Ok((input, output))
+}
+
+/// The FMSPC a collateral document is for, dug out of the Intel-signed TCB info.
+fn collateral_fmspc(collateral: &str) -> Option<String> {
+    let root: serde_json::Value = serde_json::from_str(collateral).ok()?;
+    let tcb_info = root.get("tcb_info")?;
+    let parsed: serde_json::Value = match tcb_info {
+        serde_json::Value::String(raw) => serde_json::from_str(raw).ok()?,
+        other => other.clone(),
+    };
+    let inner = parsed.get("tcbInfo").unwrap_or(&parsed);
+    inner
+        .get("fmspc")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_lowercase())
+}
+
+/// Read the collateral straight out of the register contract, at the block it was published in.
+///
+/// This is what keeps the collateral off our critical path: the bytes come from contract state on
+/// a NEAR archival node, and all our API contributes is *which block to look in*. That hint cannot
+/// be abused either — a wrong block yields collateral whose validity window fails to cover the
+/// execution, which the verdict reports, and every version the contract holds is Intel-signed
+/// anyway.
+pub fn fetch_collateral_from_chain(
+    at: &Endpoints,
+    fmspc: &str,
+    block_height: u64,
+) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let call = |method: &str| -> Result<serde_json::Value, String> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "outlayer-verify",
+            "method": "query",
+            "params": {
+                "request_type": "call_function",
+                "block_id": block_height,
+                "account_id": at.register_contract(),
+                "method_name": method,
+                "args_base64": STANDARD.encode("{}"),
+            }
+        });
+        let response: serde_json::Value = agent()
+            .post(&at.archival_rpc)
+            .send_json(request)
+            .map_err(|e| format!("archival RPC: {e}"))?
+            .into_json()
+            .map_err(|e| format!("archival RPC: response was not JSON: {e}"))?;
+
+        if let Some(error) = response.get("error") {
+            return Err(truncate(&error.to_string()));
+        }
+        let result = response
+            .get("result")
+            .ok_or_else(|| "archival RPC returned no result".to_string())?;
+        if let Some(error) = result.get("error") {
+            return Err(truncate(&error.to_string()));
+        }
+        let bytes: Vec<u8> = result
+            .get("result")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| "contract call returned no value".to_string())?
+            .iter()
+            .filter_map(|v| v.as_u64().map(|n| n as u8))
+            .collect();
+        serde_json::from_slice(&bytes).map_err(|e| format!("contract returned non-JSON: {e}"))
+    };
+
+    // Newer contracts keep one collateral per platform; older ones held a single document and had
+    // no `get_collaterals` at all, which matters when checking an execution from that era.
+    let candidates: Vec<String> = match call("get_collaterals") {
+        Ok(serde_json::Value::Array(items)) => items
+            .into_iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        _ => match call("get_collateral") {
+            Ok(serde_json::Value::String(one)) => vec![one],
+            Ok(_) => Vec::new(),
+            Err(e) => return Err(e),
+        },
+    };
+
+    if candidates.is_empty() {
+        return Err(format!(
+            "{} held no collateral at block {block_height}",
+            at.register_contract()
+        ));
+    }
+
+    // Select by the FMSPC inside the signed material, never by position: slot order is an
+    // implementation detail of the contract and has changed before.
+    candidates
+        .into_iter()
+        .find(|c| collateral_fmspc(c).as_deref() == Some(fmspc))
+        .ok_or_else(|| {
+            format!("no collateral for platform {fmspc} on chain at block {block_height}")
+        })
 }

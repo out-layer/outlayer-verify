@@ -245,7 +245,27 @@ pub fn full(style: &Style, att: &Attestation, v: &Verification, ev: &Evidence, n
                 "NO — verified against the nearest window instead; see the verdict"
             },
         );
-        kv("recovered from", &info.source);
+        match (info.read_from_chain_at_block, info.api_copy_matches_chain) {
+            (Some(block), Some(true)) => kv(
+                "bytes read from",
+                &format!(
+                    "the register contract on chain, at block {block} — byte-identical to the \
+                     copy the API served, which therefore only supplied the block number"
+                ),
+            ),
+            (Some(block), Some(false)) => kv(
+                "bytes read from",
+                &format!(
+                    "the register contract on chain, at block {block} — the API served a \
+                     DIFFERENT document; the chain's was used"
+                ),
+            ),
+            _ => kv(
+                "bytes read from",
+                "the API's archive — the chain copy could not be read, see the log above",
+            ),
+        }
+        kv("archived via", &info.source);
     }
 
     section(style, "Checks");

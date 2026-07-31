@@ -81,6 +81,13 @@ pub struct CollateralInfo {
     #[serde(default)]
     pub block_height: Option<u64>,
     pub source: String,
+    /// Set when the bytes actually used were read from the register contract on an archival node
+    /// rather than taken from the API's copy.
+    #[serde(default)]
+    pub read_from_chain_at_block: Option<u64>,
+    /// Whether the API's copy was byte-identical to the chain's. `Some(false)` is a finding.
+    #[serde(default)]
+    pub api_copy_matches_chain: Option<bool>,
 }
 
 /// Everything the verification needs that does not come from the record itself.
