@@ -85,7 +85,23 @@ fn get_json(url: &str) -> Result<serde_json::Value, String> {
         Ok(response) => response
             .into_json()
             .map_err(|e| format!("{url}: response was not JSON: {e}")),
-        Err(ureq::Error::Status(404, _)) => Err(format!("{url}: not found (HTTP 404)")),
+        // Two very different 404s, and telling them apart is the difference between "check the
+        // id you typed" and "this network's coordinator has not shipped that lookup yet". The
+        // router answers an unknown path with a JSON body; a handler that found no row answers
+        // with an empty one.
+        Err(ureq::Error::Status(404, response)) => {
+            let body = response.into_string().unwrap_or_default();
+            if body.contains("Unknown endpoint") {
+                Err(format!(
+                    "this coordinator does not offer that lookup yet ({url}).\n       \
+                     Lookup by transaction hash and by call id needs the coordinator release that \
+                     adds them; it is live on testnet. `outlayer-verify job <task-id>` works on \
+                     both networks in the meantime."
+                ))
+            } else {
+                Err(format!("no record found ({url})"))
+            }
+        }
         Err(ureq::Error::Status(code, response)) => {
             let body = response.into_string().unwrap_or_default();
             Err(format!("{url}: HTTP {code} {}", body.chars().take(200).collect::<String>()))

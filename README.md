@@ -9,12 +9,19 @@ checks signatures against is compiled into the binary rather than fetched, so no
 — can change the answer by changing what it downloads.
 
 ```sh
+# a live production execution — no account, no key, no payment
+outlayer-verify job 221092 --network mainnet
+
 # an execution you triggered from a NEAR transaction — nothing else needed
-outlayer-verify tx 8xK2vN9pQr...
+outlayer-verify tx 8xK2vN9pQr... --network testnet
 
 # an HTTPS call: run it and prove it in one step
 outlayer-verify run alice.near/my-agent --input '{"city":"Buenos Aires"}' --payment-key "$KEY"
 ```
+
+> Lookup by **transaction hash** and by **call id** is live on testnet and ships to mainnet with the
+> next coordinator release. `job <task-id>` works on both today, and the tool says which case it hit
+> rather than returning a bare 404.
 
 ## What it proves
 
