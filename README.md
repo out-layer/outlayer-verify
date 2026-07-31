@@ -67,6 +67,36 @@ Every layer reports one of three verdicts. `UNPROVEN` is not a softened failure 
 specific question could not be answered, and the tool says which one and why. A verifier that only
 ever says yes or no will eventually say yes to something it did not check.
 
+### What "Intel signature chain valid" covers
+
+The Authenticity layer is a single verdict over eight checks that all have to succeed, performed by
+`dcap-qvl` against the Intel root committed in this repository:
+
+1. **TCB Info signature** — Intel root → TCB signing certificate → the TCB Info document
+2. **QE Identity signature** — Intel root → QE Identity signing certificate → the document
+3. **PCK certificate chain** — Intel root → PCK CA → the platform's PCK certificate
+4. **QE Report signature** — the PCK certificate signs the quoting enclave's report
+5. **QE Report content** — its hash covers the attestation key and auth data
+6. **QE Report policy** — its fields satisfy the QE Identity policy
+7. **ISV Report signature** — the attestation key signs the enclave's own report
+8. **Platform TCB match** — the PCK certificate's CPU_SVN, PCE_SVN and FMSPC against TCB Info
+
+The library reports them as one result rather than step by step, so the tool says all of them
+succeeded and does not pretend to per-step evidence it does not have.
+
+The trust anchor is committed at
+`crates/verify-core/src/Intel_SGX_Provisioning_Certification_RootCA.der` and compiled in with
+`include_bytes!`; nothing is fetched at runtime, because a verifier that downloads its own root can
+be pointed at a different one. The report prints its SHA-256, which is a disclosure rather than a
+proof: it tells you which anchor that build used, and a program can print any string. It is worth
+something only against a binary you trust — so build from source, or compare the committed file with
+[Intel's published copy](https://certificates.trustedservices.intel.com/Intel_SGX_Provisioning_Certification_RootCA.cer):
+
+```sh
+shasum -a 256 crates/verify-core/src/Intel_SGX_Provisioning_Certification_RootCA.der
+# 44a0196b2b99f889b8e149e95b807a350e7424964399e885a7cbb8ccfab674d3
+```
+
 ## What it does not prove
 
 - **That the approved measurement was built from the published source.** That requires a
