@@ -26,6 +26,7 @@ OPTIONS
   --input <file|json>           the request you sent (HTTPS executions), or the body for `run`
   --output <file|json>          the response you received (HTTPS executions)
   --payment-key <key>           OWNER:NONCE:KEY, for `run`; or $OUTLAYER_PAYMENT_KEY
+  --secrets-ref <acct/profile>  secrets the program may read, for `run`
   --collateral <file>           use your own copy of the Intel collateral
   --bundle <file>               save a self-contained evidence bundle to this path
   --offline                     no network at all; only valid with `bundle`
@@ -58,6 +59,7 @@ struct Args {
     input: Option<serde_json::Value>,
     output: Option<serde_json::Value>,
     payment_key: Option<String>,
+    secrets_ref: Option<serde_json::Value>,
     collateral: Option<String>,
     bundle_path: Option<String>,
     offline: bool,
@@ -86,6 +88,7 @@ fn parse_args() -> Result<Args, String> {
         input: None,
         output: None,
         payment_key: std::env::var("OUTLAYER_PAYMENT_KEY").ok(),
+        secrets_ref: None,
         collateral: None,
         bundle_path: None,
         offline: false,
@@ -108,6 +111,7 @@ fn parse_args() -> Result<Args, String> {
             "--input" => args.input = Some(read_json(&take()?)?),
             "--output" => args.output = Some(read_json(&take()?)?),
             "--payment-key" => args.payment_key = Some(take()?),
+            "--secrets-ref" => args.secrets_ref = Some(net::parse_secrets_ref(&take()?)?),
             "--collateral" => args.collateral = Some(read_file(&take()?)?),
             "--bundle" => args.bundle_path = Some(take()?),
             "--offline" => args.offline = true,
@@ -235,7 +239,8 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
             let input = args.input.clone().unwrap_or(serde_json::json!({}));
 
             render::step(style, &format!("Calling {} on {network_name}", args.value));
-            let outcome = net::call_project(network, &args.value, &key, input)?;
+            let outcome =
+                net::call_project(network, &args.value, &key, input, args.secrets_ref.clone())?;
             render::step_ok(style, &format!("call {} — {}", outcome.call_id, outcome.status));
             if let Some(error) = &outcome.error {
                 render::step_warn(style, &format!("the program reported: {error}"));

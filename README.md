@@ -59,10 +59,64 @@ outlayer-verify run <owner>/<project>    execute, capture the payloads, then pro
 outlayer-verify bundle <file.json>       re-check a saved bundle
 ```
 
-Options: `--network mainnet|testnet`, `--input <file>`, `--output <file>`, `--payment-key`,
-`--collateral <file>`, `--bundle <file>`, `--offline`, `--short`, `--json`, `--no-color`.
+Options: `--network mainnet|testnet`, `--input <file|json>`, `--output <file|json>`,
+`--payment-key`, `--secrets-ref <account/profile>`, `--collateral <file>`, `--bundle <file>`,
+`--offline`, `--short`, `--json`, `--no-color`.
 
 Exit codes: `0` proven, `1` a layer failed, `2` unproven, `3` usage error. Suitable for CI.
+
+### Worked examples
+
+**A live production execution.** Ref Finance calls a price oracle running on OutLayer; anyone can
+check one of those executions without an account, a key or a payment:
+
+```sh
+outlayer-verify job 221092 --network mainnet
+```
+
+```
+  task id                221092
+  caller                 ref-labs.near
+  project                price-oracle.near/price-oracle
+  secrets ref            price-oracle.near/oracle
+  wasm sha256            3ff2c6fb9241ad4f5a3a40298b78d68b4da31b6760ecea3d5253579ec33809e7
+  ...
+  [ PASS     ] Authenticity   Intel signature chain valid, TCB UpToDate
+  [ PASS     ] Identity       measurements approved on worker.outlayer.near
+  [ PASS     ] Binding        report_data commits to exactly these task fields
+```
+
+Three layers pass. The request and the response are not checked, because this was an HTTPS call and
+only their hashes were ever stored — the tool says so rather than implying a completeness it does
+not have. Note `secrets ref`: the execution was permitted to read one named secret profile, and that
+permission is part of what the enclave signed. The secrets themselves never leave it.
+
+**An on-chain execution, proven end to end.** Here nothing has to be kept or supplied: both payloads
+live in the transaction forever.
+
+```sh
+outlayer-verify tx HBZiBDSwok8mfSpQi7cvUHvgb8GHFK8xefvj5U1k29N --network testnet
+```
+
+```
+▸ Recovering the request and response from the chain
+  ✓ both recovered from the transaction
+
+  [ PASS     ] Input   content   {"city":"Buenos Aires","units":"metric"}
+  [ PASS     ] Output  content   {"city":"Buenos Aires","country":"AR","temperature":16.53, ...}
+
+  PROVEN  every check passed
+```
+
+**Your own call, with secrets.** `--secrets-ref` names a secret profile the program may read; it is
+recorded in the attestation, so the proof shows what the execution was allowed to touch:
+
+```sh
+outlayer-verify run alice.testnet/my-agent --network testnet \\
+  --input '{"command":"check_all"}' \\
+  --secrets-ref alice.testnet/default \\
+  --payment-key 'alice.testnet:4:<key>'
+```
 
 ### Reading the output
 

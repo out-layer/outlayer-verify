@@ -260,14 +260,33 @@ pub struct CallOutcome {
     pub error: Option<String>,
 }
 
+/// A reference to secrets the program is allowed to read, as `account_id/profile`.
+///
+/// Worth passing on purpose: the reference is part of the attested commitment, so a proof records
+/// which secret profile the execution was permitted to touch — not the secrets themselves, which
+/// never leave the enclave.
+pub fn parse_secrets_ref(value: &str) -> Result<serde_json::Value, String> {
+    let (account_id, profile) = value.split_once('/').ok_or_else(|| {
+        format!("expected a secrets reference as <account_id>/<profile>, got {value:?}")
+    })?;
+    if account_id.is_empty() || profile.is_empty() {
+        return Err(format!("incomplete secrets reference {value:?}"));
+    }
+    Ok(serde_json::json!({ "account_id": account_id, "profile": profile }))
+}
+
 pub fn call_project(
     network: Network,
     project: &str,
     payment_key: &str,
     input: serde_json::Value,
+    secrets_ref: Option<serde_json::Value>,
 ) -> Result<CallOutcome, String> {
     let url = format!("{}/call/{project}", network.api());
-    let body = serde_json::json!({ "input": input, "async": false });
+    let mut body = serde_json::json!({ "input": input, "async": false });
+    if let Some(reference) = secrets_ref {
+        body["secrets_ref"] = reference;
+    }
 
     let response: serde_json::Value = match agent()
         .post(&url)
