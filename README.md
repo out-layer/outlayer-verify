@@ -276,15 +276,118 @@ $ outlayer-verify tx HBZiBDSwok8mfSpQi7cvUHvgb8GHFK8xefvj5U1k29N --network testn
 Here all five checks run: the request and the response come out of the transaction itself, so the
 bytes are compared, not just the hashes the quote commits to.
 
-**Your own call, with secrets.** `--secrets-ref` names a secret profile the program may read; it is
-recorded in the attestation, so the proof shows what the execution was allowed to touch:
+**An HTTPS call, made and proven in one step.** This is a real mainnet call to the price oracle
+above. Reproducing it needs a payment key of your own — the execution is paid for — which is exactly
+the point: you do not have to trust the output below, you can produce your own.
+
+`run` makes the call and keeps both payloads. That matters because only their hashes are stored
+server-side, so this is the only moment the request and the response exist anywhere else.
+`--secrets-ref` names the secret profile the program is allowed to read; it is part of the attested
+commitment, so the proof records what the execution was permitted to touch. The secrets themselves
+never leave the enclave.
 
 ```sh
-outlayer-verify run alice.testnet/my-agent --network testnet \\
-  --input '{"command":"check_all"}' \\
-  --secrets-ref alice.testnet/default \\
-  --payment-key 'alice.testnet:4:<key>'
+outlayer-verify run price-oracle.near/price-oracle --network mainnet \
+  --input '{"command":"get_signed_prices","tokens":["wrap.near","nbtc.bridge.near","eth.bridge.near"],"max_age_secs":30,"exclude_sources":["pyth","chainlink"]}' \
+  --secrets-ref price-oracle.near/oracle \
+  --payment-key "$KEY"
 ```
+
+<details>
+<summary>The whole output &mdash; all five checks on a live mainnet execution</summary>
+
+```
+▸ Calling price-oracle.near/price-oracle on mainnet
+  ✓ call be63e017-3feb-4f16-96d2-b2a6114b1152 — completed
+  ✓ request and response captured — they cannot be recovered later
+▸ Waiting for the worker to publish the attestation
+  ✓ attestation published: task 221314
+▸ Fetching Intel collateral for platform b0c06f000000, valid at 2026-07-31T10:03:12Z
+  ✓ published by worker.outlayer.near, valid 2026-07-21T00:13:24Z .. 2026-08-19T23:51:19Z
+▸ Asking worker.outlayer.near whether these measurements are approved
+  ✓ the chain recognises this build
+
+── Record as published ─────────────────────────────────────────────────────────────────────────
+  task id                221314
+  task type              execute
+  executed at            2026-07-31T10:03:12Z (1785492192)
+  format                 V1 — commits to caller, project, secrets, timestamp and payment
+  network                mainnet
+  call id                be63e017-3feb-4f16-96d2-b2a6114b1152
+  caller                 price-oracle.near
+  project                price-oracle.near/price-oracle
+  build target           wasm32-wasip2
+  wasm sha256            3ff2c6fb9241ad4f5a3a40298b78d68b4da31b6760ecea3d5253579ec33809e7
+  input sha256           3111dc537f79650f8a00524e0a31f12b72c428284f3cb4260cde3f3e9e9905dd
+  output sha256          ac8f86b931daf2bd4461fd54db75cd09fcbf32a45927bb2fea34cc43920d33f8
+  attached payment       0
+  secrets ref            price-oracle.near/oracle
+
+── Inside the signed quote ─────────────────────────────────────────────────────────────────────
+  read from the quote AFTER Intel's signature was checked, not from the record
+  size                   5006 bytes
+  platform (FMSPC)       b0c06f000000 — taken from the signed PCK certificate
+  MRTD                   7fe60787222bd394cb516abca2435f22f035ab2cc9c0a4b4b3b148e46297f3d931a237b72f359052c6e657d8c1409173
+  RTMR0                  530526e456733dff151712d1db1728cfc3bc85ed0a6c13653add2e644c57068009595b935f6a50ce4a714bad2b33bc8e
+  RTMR1                  e8601b64942f9f7a66f4d8f5727c0a7d4a71953cfc3c7d13e043f8ddf4f94d2358afd17e01f567a5d8209f3cf7479489
+  RTMR2                  ad1ed113dbecf8516b1ae1ba33a5188d61dd4a4baf5c181c1dd3c61ed8b91a624b5ac2242328028e540d9a2fb4f2dbfe
+  RTMR3                  001f49dde2ea600119c298ca92212f044d220bedaf067ee5cc817103350d201538224a0880014830ca3d988b7f159b75
+  report_data[..32]      9c6008f3ce30b5469f688e0f6fbf153e128d738f386879594b8ba709928a80f3
+  report_data[32..]      0000000000000000000000000000000000000000000000000000000000000000 (zero,
+                         as the format requires)
+
+── Intel collateral used ───────────────────────────────────────────────────────────────────────
+  Intel-signed TCB data; altering it breaks the chain, so its source cannot change the verdict
+  published by           worker.outlayer.near
+  at block               209222035
+  sha256                 4ce45a28f0227cf7b517151c9174f5a8a23f68cba45ef1bd942e74fc97f86bb9
+  valid from             2026-07-21T00:13:24Z
+  valid until            2026-08-19T23:51:19Z
+  covers execution       yes — this execution falls inside the validity window
+  recovered from         sync
+
+── Checks ──────────────────────────────────────────────────────────────────────────────────────
+
+  [ PASS     ] Authenticity  is this a genuine Intel TDX quote?
+                         Intel signature chain valid, TCB UpToDate
+    Intel TCB status     UpToDate
+
+  [ PASS     ] Identity  is this code approved on chain?
+                         measurements approved on worker.outlayer.near
+
+  [ PASS     ] Binding  does the quote cover this execution?
+                         report_data commits to exactly these task fields
+    fields hash to       9c6008f3ce30b5469f688e0f6fbf153e128d738f386879594b8ba709928a80f3
+    quote commits to     9c6008f3ce30b5469f688e0f6fbf153e128d738f386879594b8ba709928a80f3 —
+                         identical
+
+  [ PASS     ] Input  do the request bytes match what was attested?
+                         the request you supplied
+    content              {"command":"get_signed_prices","tokens":["wrap.near","nbtc.bridge.near","eth.bridge.near"],"max_age_secs":30,"exclude_sources":["pyth","chainlink"]}
+    hashes to            3111dc537f79650f8a00524e0a31f12b72c428284f3cb4260cde3f3e9e9905dd
+    attested             3111dc537f79650f8a00524e0a31f12b72c428284f3cb4260cde3f3e9e9905dd
+                         the attested value is itself inside the signed quote — it is part
+                         of the commitment checked by Binding above, so matching it means
+                         matching what the TEE signed
+
+  [ PASS     ] Output  do the response bytes match what was attested?
+                         the response you supplied
+    content              {"error":null,"payload":"{\"eth.bridge.near\":{\"price\":\"188246333333\",\"expo\":-8,\"publish_time\":1785492182},\"nbtc.bridge.near\":{\"price\":\"6367973333333\",\"expo\":-8,\"publish_time\":1785492182},\"wrap.near\":{\"price\":\"163883333\",\"expo\":-8,\"publish_time\":1785492182}}","public_key":"ed25519:FU6EnB4UaAiDCAxvQPkRUu5QQExgzvKQAX891wMEX3rU","sig_format":"json","signature":"hQHOc3RRkN9DzRjXXCsAFA5DxjAlA+bRjtrfZHbJk+5wQ4wA13ZilFADlQTIUr2nGK+5WvrjT8F7i1wBaRsTAg==","success":true}
+    hashes to            ac8f86b931daf2bd4461fd54db75cd09fcbf32a45927bb2fea34cc43920d33f8
+    attested             ac8f86b931daf2bd4461fd54db75cd09fcbf32a45927bb2fea34cc43920d33f8
+                         the attested value is itself inside the signed quote — it is part
+                         of the commitment checked by Binding above, so matching it means
+                         matching what the TEE signed
+
+  PROVEN  every check passed: this input produced this output, inside genuine
+          Intel TDX hardware, running code approved on chain.
+```
+
+</details>
+
+Note the last two checks. The oracle returned signed prices, and the tool confirms that the exact
+response you received — signature and all — is the one the enclave committed to before Intel signed
+the quote. A response altered anywhere between the enclave and your process would fail here.
 
 ### Reading the output
 
