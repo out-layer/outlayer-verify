@@ -1,0 +1,8 @@
+/target
+*.json.bundle
+outlayer-proof-*.json
+
+# The lockfile is committed on purpose: this is a binary whose whole value is that anyone can
+# rebuild it and get a verifier with the same dependency tree. A security tool that resolves a
+# different set of crates on every machine cannot be audited once and trusted afterwards.
+!Cargo.lock

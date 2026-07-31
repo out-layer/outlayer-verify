@@ -1,0 +1,18 @@
+[package]
+name = "outlayer-verify"
+description = "Verify that an OutLayer execution really happened inside a genuine Intel TDX enclave, running approved code, on the input and output you have"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "outlayer-verify"
+path = "src/main.rs"
+
+[dependencies]
+outlayer-verify-core = { path = "../verify-core", version = "0.1.0" }
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true

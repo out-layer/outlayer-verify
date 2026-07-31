@@ -1,0 +1,29 @@
+[package]
+name = "outlayer-verify-core"
+description = "Verification of OutLayer TEE execution proofs: Intel TDX quote authenticity, on-chain measurement identity, and the binding of a quote to one execution"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dcap-qvl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+
+# Network access lives behind a feature so the verification itself can be audited, tested and run
+# with no I/O at all — `--offline` on a saved evidence bundle uses none of this.
+ureq = { version = "2.10", features = ["json"], optional = true }
+
+[features]
+default = ["net"]
+net = ["dep:ureq"]
+
+[dev-dependencies]
+serde_json.workspace = true
+hex.workspace = true
+base64.workspace = true

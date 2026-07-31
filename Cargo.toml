@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/verify-core", "crates/verify-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/out-layer/outlayer-verify"
+
+[workspace.dependencies]
+# The same crate the register-contract verifies quotes with, and the same one the dashboard runs in
+# the browser. One version everywhere, or the three disagree about the same bytes eventually.
+#
+# `report` is deliberately off: it pulls reqwest in to fetch collateral from Intel, and collateral
+# here is an input the caller supplies, never something this crate goes and gets on its own.
+dcap-qvl = { version = "0.5.2", default-features = false, features = ["std", "rustcrypto", "default-x509"] }
+serde = { version = "1", features = ["derive"] }
+# Not a preference: the coordinator hashes an HTTPS request body with the caller's key order intact,
+# so reproducing `input_hash` requires a JSON map that preserves insertion order. Without this
+# feature serde_json's map is a BTreeMap, every request re-serialises with sorted keys, and a
+# perfectly valid execution is reported as a hash mismatch. `preimage::payload` sorts explicitly
+# where the worker sorts.
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+anyhow = "1"
