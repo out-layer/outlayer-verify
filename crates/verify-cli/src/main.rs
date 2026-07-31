@@ -5,8 +5,11 @@
 
 use std::process::ExitCode;
 
+mod render;
+
 use outlayer_verify_core as core;
-use outlayer_verify_core::{bundle::Bundle, net, Evidence, Layer, Verification};
+use outlayer_verify_core::{bundle::Bundle, net, Evidence, Verification};
+use render::Style;
 
 const USAGE: &str = "\
 outlayer-verify — verify an OutLayer execution proof
@@ -24,10 +27,11 @@ OPTIONS
   --output <file>               the response you received (HTTPS executions)
   --payment-key <key>           OWNER:NONCE:KEY, for `run`; or $OUTLAYER_PAYMENT_KEY
   --collateral <file>           use your own copy of the Intel collateral
-  --bundle <file>               where to write the evidence bundle (default: alongside the result)
-  --no-bundle                   do not write one
+  --bundle <file>               save a self-contained evidence bundle to this path
   --offline                     no network at all; only valid with `bundle`
-  --json                        machine-readable result instead of the table
+  --short                       one line: the verdict only
+  --json                        machine-readable result, with every value compared
+  --no-color                    plain text (also honours NO_COLOR)
   -h, --help
 
 EXIT CODES
@@ -56,9 +60,10 @@ struct Args {
     payment_key: Option<String>,
     collateral: Option<String>,
     bundle_path: Option<String>,
-    no_bundle: bool,
     offline: bool,
+    short: bool,
     json: bool,
+    no_color: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -83,9 +88,10 @@ fn parse_args() -> Result<Args, String> {
         payment_key: std::env::var("OUTLAYER_PAYMENT_KEY").ok(),
         collateral: None,
         bundle_path: None,
-        no_bundle: false,
         offline: false,
+        short: false,
         json: false,
+        no_color: false,
     };
 
     let mut i = 0;
@@ -104,9 +110,10 @@ fn parse_args() -> Result<Args, String> {
             "--payment-key" => args.payment_key = Some(take()?),
             "--collateral" => args.collateral = Some(read_file(&take()?)?),
             "--bundle" => args.bundle_path = Some(take()?),
-            "--no-bundle" => args.no_bundle = true,
             "--offline" => args.offline = true,
+            "--short" => args.short = true,
             "--json" => args.json = true,
+            "--no-color" => args.no_color = true,
             other => return Err(format!("unknown option {other}")),
         }
         i += 1;
@@ -125,9 +132,10 @@ fn read_json(path: &str) -> Result<serde_json::Value, String> {
 fn run() -> Result<ExitCode, String> {
     let args = parse_args()?;
 
+    let style = Style::detect(args.no_color, !args.short && !args.json);
     let (attestation, mut evidence, network_name) = match args.command.as_str() {
         "bundle" => return verify_bundle(&args),
-        "tx" | "call" | "job" | "run" => gather(&args)?,
+        "tx" | "call" | "job" | "run" => gather(&args, &style)?,
         other => return Err(format!("unknown command {other:?}\n\n{USAGE}")),
     };
 
@@ -142,28 +150,37 @@ fn run() -> Result<ExitCode, String> {
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&verification).unwrap());
+    } else if args.short {
+        render::short(&style, &verification);
     } else {
-        render(&attestation, &verification);
+        render::full(&style, &attestation, &verification, &network_name);
     }
 
-    if !args.no_bundle {
-        let path = args.bundle_path.clone().unwrap_or_else(|| {
-            format!("outlayer-proof-{}.json", attestation.task_id)
-        });
+    // Only on request: a verification tool that drops files into whatever directory it was run
+    // from is a nuisance, and the bundle is worth having deliberately rather than by accident.
+    if let Some(path) = &args.bundle_path {
         let bundle = Bundle::new(&network_name, attestation, &evidence, verification.clone());
-        std::fs::write(&path, serde_json::to_string_pretty(&bundle).unwrap())
+        std::fs::write(path, serde_json::to_string_pretty(&bundle).unwrap())
             .map_err(|e| format!("could not write {path}: {e}"))?;
         if !args.json {
-            println!("\n  Evidence bundle: {path}");
-            println!("  Re-check it any time, with no network: outlayer-verify bundle {path} --offline");
+            println!("\n  Evidence bundle written to {path}");
+            println!("  Re-check it with no network at all: outlayer-verify bundle {path} --offline");
         }
+    } else if !args.json && !args.short {
+        println!();
+        render::note(
+            &style,
+            "Tip: --bundle proof.json saves the record, the collateral and the payloads into one \
+             file that re-verifies offline, years from now, with no network and no dependence on \
+             anyone still being around.",
+        );
     }
 
     Ok(exit_code(&verification))
 }
 
 /// Fetch the record and everything needed to judge it.
-fn gather(args: &Args) -> Result<(core::Attestation, Evidence, String), String> {
+fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, String), String> {
     if args.offline {
         return Err("--offline only applies to `bundle`; the other commands must fetch the record".into());
     }
@@ -181,18 +198,27 @@ fn gather(args: &Args) -> Result<(core::Attestation, Evidence, String), String> 
     let attestation = match args.command.as_str() {
         "tx" => {
             require(&args.value, "a NEAR transaction hash")?;
-            net::fetch_attestation(network, net::Lookup::Transaction(&args.value))?
+            render::step(style, &format!("Fetching the record for transaction {}", args.value));
+            let att = net::fetch_attestation(network, net::Lookup::Transaction(&args.value))?;
+            render::step_ok(style, &format!("record found: task {}", att.task_id));
+            att
         }
         "call" => {
             require(&args.value, "an HTTPS call id")?;
-            net::fetch_attestation(network, net::Lookup::Call(&args.value))?
+            render::step(style, &format!("Fetching the record for call {}", args.value));
+            let att = net::fetch_attestation(network, net::Lookup::Call(&args.value))?;
+            render::step_ok(style, &format!("record found: task {}", att.task_id));
+            att
         }
         "job" => {
             let id: i64 = args
                 .value
                 .parse()
                 .map_err(|_| "job takes a numeric task id".to_string())?;
-            net::fetch_attestation(network, net::Lookup::Task(id))?
+            render::step(style, &format!("Fetching the record for task {id}"));
+            let att = net::fetch_attestation(network, net::Lookup::Task(id))?;
+            render::step_ok(style, "record found");
+            att
         }
         "run" => {
             require(&args.value, "a project as <owner>/<project>")?;
@@ -202,26 +228,28 @@ fn gather(args: &Args) -> Result<(core::Attestation, Evidence, String), String> 
                 .ok_or("run needs --payment-key or $OUTLAYER_PAYMENT_KEY")?;
             let input = args.input.clone().unwrap_or(serde_json::json!({}));
 
-            println!("Calling {} on {network_name}...", args.value);
+            render::step(style, &format!("Calling {} on {network_name}", args.value));
             let outcome = net::call_project(network, &args.value, &key, input)?;
-            println!("  call_id: {}", outcome.call_id);
-            println!("  status : {}", outcome.status);
+            render::step_ok(style, &format!("call {} — {}", outcome.call_id, outcome.status));
             if let Some(error) = &outcome.error {
-                println!("  error  : {error}");
+                render::step_warn(style, &format!("the program reported: {error}"));
             }
 
             // Keep both payloads: for an HTTPS call only their hashes are stored, so this is the
             // only moment they exist anywhere outside the caller's process.
             evidence.input = Some(outcome.input.clone());
             evidence.output = outcome.output.clone();
+            render::step_ok(style, "request and response captured — they cannot be recovered later");
 
-            println!("  waiting for the attestation to be published...");
-            net::await_attestation(
+            render::step(style, "Waiting for the worker to publish the attestation");
+            let att = net::await_attestation(
                 network,
                 net::Lookup::Call(&outcome.call_id),
                 8,
                 std::time::Duration::from_secs(3),
-            )?
+            )?;
+            render::step_ok(style, &format!("attestation published: task {}", att.task_id));
+            att
         }
         _ => unreachable!(),
     };
@@ -229,22 +257,44 @@ fn gather(args: &Args) -> Result<(core::Attestation, Evidence, String), String> 
     // Collateral has to match the platform named inside the signed quote, and be valid at the
     // moment the execution ran — not now.
     match &args.collateral {
-        Some(supplied) => evidence.collateral = Some(supplied.clone()),
+        Some(supplied) => {
+            render::step(style, "Using the Intel collateral you supplied");
+            evidence.collateral = Some(supplied.clone());
+        }
         None => {
             let bytes = attestation.quote_bytes();
             if let Ok(bytes) = bytes {
                 match core::quote::peek(&bytes) {
                     Ok(unverified) => {
+                        render::step(
+                            style,
+                            &format!(
+                                "Fetching Intel collateral for platform {}, valid at {}",
+                                unverified.fmspc,
+                                iso8601(attestation.timestamp)
+                            ),
+                        );
                         match net::fetch_collateral(network, &unverified.fmspc, attestation.timestamp)
                         {
                             Ok((body, info)) => {
+                                if info.covers_execution_time {
+                                    render::step_ok(
+                                        style,
+                                        &format!("published by {}, valid {} .. {}", info.contract_id, info.valid_from, info.valid_until),
+                                    );
+                                } else {
+                                    render::step_warn(
+                                        style,
+                                        &format!("nearest window is {} .. {} — it does NOT cover this execution", info.valid_from, info.valid_until),
+                                    );
+                                }
                                 evidence.collateral = Some(body);
                                 evidence.collateral_info = Some(info);
                             }
-                            Err(e) => eprintln!("note: collateral unavailable — {e}"),
+                            Err(e) => render::step_warn(style, &format!("collateral unavailable — {e}")),
                         }
                     }
-                    Err(e) => eprintln!("note: {e}"),
+                    Err(e) => render::step_warn(style, &e),
                 }
             }
         }
@@ -254,9 +304,23 @@ fn gather(args: &Args) -> Result<(core::Attestation, Evidence, String), String> 
     // verifier will actually decode rather than about anything the record claims.
     if let (Some(collateral), Ok(bytes)) = (&evidence.collateral, attestation.quote_bytes()) {
         if let Ok(verified) = core::quote::verify(&bytes, collateral, attestation.timestamp as u64) {
+            render::step(
+                style,
+                &format!(
+                    "Asking {} whether these measurements are approved",
+                    network.register_contract()
+                ),
+            );
             match net::measurements_approved(network, &verified.measurements) {
-                Ok(approved) => evidence.measurements_approved = Some(approved),
-                Err(e) => eprintln!("note: could not read the approved list — {e}"),
+                Ok(approved) => {
+                    if approved {
+                        render::step_ok(style, "the chain recognises this build");
+                    } else {
+                        render::step_warn(style, "the chain does NOT list this build as approved");
+                    }
+                    evidence.measurements_approved = Some(approved);
+                }
+                Err(e) => render::step_warn(style, &format!("could not read the approved list — {e}")),
             }
         }
     }
@@ -266,6 +330,7 @@ fn gather(args: &Args) -> Result<(core::Attestation, Evidence, String), String> 
 
 fn verify_bundle(args: &Args) -> Result<ExitCode, String> {
     require(&args.value, "a path to a bundle file")?;
+    let style = Style::detect(args.no_color, !args.short && !args.json);
     let bundle: Bundle = serde_json::from_str(&read_file(&args.value)?)
         .map_err(|e| format!("{}: not a bundle: {e}", args.value))?;
     if bundle.bundle_format != core::bundle::BUNDLE_FORMAT {
@@ -279,8 +344,10 @@ fn verify_bundle(args: &Args) -> Result<ExitCode, String> {
     let verification = core::verify(&bundle.attestation, &bundle.evidence());
     if args.json {
         println!("{}", serde_json::to_string_pretty(&verification).unwrap());
+    } else if args.short {
+        render::short(&style, &verification);
     } else {
-        render(&bundle.attestation, &verification);
+        render::full(&style, &bundle.attestation, &verification, &bundle.network);
     }
     Ok(exit_code(&verification))
 }
@@ -302,104 +369,9 @@ fn exit_code(v: &Verification) -> ExitCode {
     }
 }
 
-fn render(att: &core::Attestation, v: &Verification) {
-    let when = iso8601(att.timestamp);
-    println!("\nOutLayer execution proof — task {} ({}), {when}", v.task_id, v.task_type);
-    println!();
-    line("Authenticity", &v.authenticity);
-    if let Some(status) = &v.tcb_status {
-        detail(&format!("Intel TCB status {status}"));
-    }
-    if let Some(info) = &v.collateral {
-        detail(&format!(
-            "platform {} · collateral published by {}{}",
-            info.fmspc,
-            info.contract_id,
-            info.tx_hash
-                .as_ref()
-                .map(|t| format!(", tx {t}"))
-                .unwrap_or_default()
-        ));
-    }
-    line("Identity", &v.identity);
-    if let Some(m) = &v.measurements {
-        detail(&format!("RTMR3 {}", short(&m.rtmr3)));
-    }
-    line("Binding", &v.binding);
-    if let Some(input) = &v.input {
-        line("  input", input);
-    }
-    if let Some(output) = &v.output {
-        line("  output", output);
-    }
-
-    println!();
-    if v.is_proven() {
-        println!("  PROVEN — this input produced this output inside genuine Intel TDX hardware");
-        println!("           running code approved on chain.");
-    } else if v.has_failure() {
-        println!("  NOT PROVEN — a check failed. Do not treat this execution as verified.");
-    } else {
-        println!("  INCOMPLETE — no check failed, but the proof is not complete either. See above.");
-    }
-
-    if !v.uncovered_fields.is_empty() {
-        println!(
-            "\n  Not covered by the signature on this record ({}): {}",
-            "pre-V1 format",
-            v.uncovered_fields.join(", ")
-        );
-    }
-    println!("  Not proven by any attestation: that the approved measurement was built from the");
-    println!("  published source. That needs a reproducible build, which is a separate claim.");
-}
-
-fn line(name: &str, layer: &Layer) {
-    let (label, text) = match layer {
-        Layer::Pass { detail } => ("PASS", detail.as_str()),
-        Layer::Fail { reason } => ("FAIL", reason.as_str()),
-        Layer::Unproven { reason } => ("UNPROVEN", reason.as_str()),
-    };
-    println!("  {name:<14} {label:<9} {}", wrap(text));
-}
-
-fn detail(text: &str) {
-    println!("  {:<14} {:<9} {}", "", "", wrap(text));
-}
-
-/// Keep long explanations readable in a terminal without depending on a wrapping crate.
-fn wrap(text: &str) -> String {
-    const WIDTH: usize = 62;
-    // Matches the "  " + 14-wide name + " " + 9-wide verdict + " " prefix, so a wrapped
-    // explanation lines up under the first word instead of drifting.
-    const INDENT: &str = "\n                          ";
-    let mut out = String::new();
-    let mut column = 0;
-    for word in text.split_whitespace() {
-        if column > 0 && column + word.len() + 1 > WIDTH {
-            out.push_str(INDENT);
-            column = 0;
-        } else if column > 0 {
-            out.push(' ');
-            column += 1;
-        }
-        out.push_str(word);
-        column += word.len();
-    }
-    out
-}
-
-fn short(hex: &str) -> String {
-    if hex.len() > 20 {
-        format!("{}…{}", &hex[..8], &hex[hex.len() - 4..])
-    } else {
-        hex.to_string()
-    }
-}
-
 /// Minimal UTC formatting — a date is not worth a chrono dependency in a tool whose value is that
 /// its dependency list can be read in one sitting.
-fn iso8601(unix: i64) -> String {
+pub fn iso8601(unix: i64) -> String {
     let days = unix.div_euclid(86_400);
     let secs = unix.rem_euclid(86_400);
     let (mut year, mut day) = (1970, days);

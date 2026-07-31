@@ -60,9 +60,43 @@ outlayer-verify bundle <file.json>       re-check a saved bundle
 ```
 
 Options: `--network mainnet|testnet`, `--input <file>`, `--output <file>`, `--payment-key`,
-`--collateral <file>`, `--bundle <file>`, `--no-bundle`, `--offline`, `--json`.
+`--collateral <file>`, `--bundle <file>`, `--offline`, `--short`, `--json`, `--no-color`.
 
 Exit codes: `0` proven, `1` a layer failed, `2` unproven, `3` usage error. Suitable for CI.
+
+### Reading the output
+
+By default the tool shows its working, because a verdict you cannot take apart is only a different
+way of saying "trust me". It logs each step as it happens, prints the record as published, then what
+is actually inside the signed quote, then the collateral it used and why that collateral applies —
+and for every comparison it prints **both** values:
+
+```
+── Checks ──────────────────────────────────────────────────────────────
+
+  [ PASS     ] Authenticity  is this a genuine Intel TDX quote?
+                         Intel signature chain valid, TCB UpToDate
+    Intel TCB status     UpToDate
+
+  [ PASS     ] Identity  is this code approved on chain?
+                         measurements approved on worker.outlayer.near
+
+  [ FAIL     ] Binding  does the quote cover this execution?
+    fields hash to       4b243baa79cdbe2104649332cd4bc3544d330e3eee68056755628c73645b207f
+    quote commits to     7d19e4dcb6e3b36ff6f5e62580224e956fec8adac57e54156befc2c263c57efe — DIFFERENT
+```
+
+`--short` collapses everything to one line for scripts and repeat runs:
+
+```
+$ outlayer-verify job 205123 --short
+PROVEN task 205123 (execute) 7d19e4dcb6e3b36f…63c57efe
+```
+
+`--json` prints the same values as a machine-readable object. Colour switches itself off when the
+output is not a terminal, and honours `NO_COLOR`.
+
+Nothing is written to disk unless you ask for it with `--bundle`.
 
 ### Keep your payloads
 
@@ -75,12 +109,13 @@ all. If you call the API directly, save what you sent and what you got back.
 
 ### The evidence bundle
 
-Every successful run writes a single self-contained JSON file: the record, the Intel-signed
-collateral used, the payloads, the chain's answer, and the verdict. Re-check it years later with no
+`--bundle <file>` writes a single self-contained JSON file: the record, the Intel-signed collateral
+used, the payloads, the chain's answer, and the verdict. Re-check it years later with no
 network and no dependence on anyone still being around:
 
 ```sh
-outlayer-verify bundle outlayer-proof-205123.json --offline
+outlayer-verify job 205123 --bundle proof.json
+outlayer-verify bundle proof.json --offline
 ```
 
 The stored verdict is informational — `bundle` recomputes it from the evidence rather than believing

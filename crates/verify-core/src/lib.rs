@@ -123,6 +123,25 @@ pub struct Verification {
     /// Fields this record's format does not commit to. Empty for V1.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub uncovered_fields: Vec<String>,
+
+    // Everything below is the working of the proof rather than its conclusion. A verdict a reader
+    // cannot take apart is just a different way of saying "trust me", so the values that were
+    // compared are reported alongside the comparison.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_size: Option<usize>,
+    /// The commitment found inside the signed quote.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_data_prefix: Option<String>,
+    /// Must be all zeros in this format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_data_suffix: Option<String>,
+    /// What the published fields hash to. Equal to `report_data_prefix` when the binding holds.
+    pub expected_task_hash: String,
+    /// Hash of the request the caller supplied, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_hash_computed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_hash_computed: Option<String>,
 }
 
 impl Verification {
@@ -168,6 +187,12 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
             .iter()
             .map(|s| s.to_string())
             .collect(),
+        quote_size: None,
+        report_data_prefix: None,
+        report_data_suffix: None,
+        expected_task_hash: hex::encode(preimage::task_hash(att, format)),
+        input_hash_computed: None,
+        output_hash_computed: None,
     };
 
     // --- Layer 1: authenticity -------------------------------------------------------------
@@ -208,6 +233,9 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
     out.tcb_status = Some(verified.tcb_status.clone());
     out.advisory_ids = verified.advisory_ids.clone();
     out.measurements = Some(verified.measurements.clone());
+    out.quote_size = Some(quote_bytes.len());
+    out.report_data_prefix = Some(verified.report_data_prefix.clone());
+    out.report_data_suffix = Some(verified.report_data_suffix.clone());
     out.authenticity = if verified.tcb_is_current() {
         Layer::pass("Intel signature chain valid, TCB UpToDate")
     } else {
@@ -249,7 +277,7 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
     };
 
     // --- Layer 3: binding ------------------------------------------------------------------
-    let expected = hex::encode(preimage::task_hash(att, format));
+    let expected = out.expected_task_hash.clone();
     out.binding = if expected == verified.report_data_prefix {
         if verified.report_data_suffix.chars().all(|c| c == '0') {
             Layer::pass("report_data commits to exactly these task fields")
@@ -271,6 +299,7 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
     // --- Payloads --------------------------------------------------------------------------
     if let Some(input) = &evidence.input {
         let computed = preimage::payload::input_hash(input);
+        out.input_hash_computed = Some(computed.clone());
         out.input = Some(match &att.input_hash {
             Some(stored) if *stored == computed => Layer::pass(format!("sha256 {computed}")),
             Some(stored) => Layer::fail(format!(
@@ -281,6 +310,7 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
     }
     if let Some(output) = &evidence.output {
         let computed = preimage::payload::output_hash(output);
+        out.output_hash_computed = Some(computed.clone());
         out.output = Some(if att.output_hash == computed {
             Layer::pass(format!("sha256 {computed}"))
         } else {
