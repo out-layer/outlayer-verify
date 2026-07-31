@@ -542,4 +542,7 @@ assumed.
 
 ## Licence
 
-Apache-2.0.
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option — the Rust
+ecosystem default, and deliberately the least restrictive thing we could pick. A tool whose purpose
+is letting you check us should not come with terms worth thinking about before you run it in your
+own pipeline.
