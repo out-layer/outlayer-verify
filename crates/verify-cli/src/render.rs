@@ -7,7 +7,7 @@
 
 use std::io::IsTerminal;
 
-use outlayer_verify_core::{Attestation, Layer, Verification};
+use outlayer_verify_core::{Attestation, Evidence, Layer, Verification};
 
 pub struct Style {
     colour: bool,
@@ -145,7 +145,7 @@ fn short_hex(value: &str) -> String {
 }
 
 /// The full report: the record, the quote, the collateral, then the three layers.
-pub fn full(style: &Style, att: &Attestation, v: &Verification, network: &str) {
+pub fn full(style: &Style, att: &Attestation, v: &Verification, ev: &Evidence, network: &str) {
     section(style, "Record as published");
     kv("task id", &att.task_id.to_string());
     kv("task type", &att.task_type);
@@ -273,21 +273,62 @@ pub fn full(style: &Style, att: &Attestation, v: &Verification, network: &str) {
 
     if let Some(layer) = &v.input {
         check(style, "Input", "do the request bytes match what was attested?", layer);
+        payload_body(style, ev.input_raw.clone().or_else(|| ev.input.as_ref().map(|v| v.to_string())));
         if let Some(computed) = &v.input_hash_computed {
             kv("  hashes to", computed);
             kv("  attested", att.input_hash.as_deref().unwrap_or("<none>"));
+            signed_note(style, v);
         }
     }
     if let Some(layer) = &v.output {
         check(style, "Output", "do the response bytes match what was attested?", layer);
+        payload_body(style, ev.output_raw.clone().or_else(|| ev.output.as_ref().map(|v| v.to_string())));
         if let Some(computed) = &v.output_hash_computed {
             kv("  hashes to", computed);
             kv("  attested", &att.output_hash);
+            signed_note(style, v);
         }
     }
 
     verdict_block(style, v);
     caveats(style, v, att);
+}
+
+/// Why matching the attested hash means anything.
+///
+/// On its own, "these bytes hash to the value in the record" only says the record is
+/// self-consistent — whoever wrote the record could have written both. What makes it a proof is
+/// that `input_hash` and `output_hash` are themselves part of the commitment inside the signed
+/// quote, checked by the Binding layer. Without saying so, a reader has to already know the format
+/// to see the difference, which is exactly the knowledge they came here not needing.
+fn signed_note(style: &Style, v: &Verification) {
+    let text = if v.binding.is_pass() {
+        "the attested value is itself inside the signed quote — it is part of the commitment \
+         checked by Binding above, so matching it means matching what the TEE signed"
+    } else {
+        "note: Binding did not pass, so the attested value above is not backed by the signature"
+    };
+    para(VALUE_COLUMN, &style.dim(text));
+}
+
+/// The payload itself. Two matching hashes prove the bytes are the attested ones; seeing the bytes
+/// is what tells the reader whether those are the bytes they meant to send.
+fn payload_body(style: &Style, body: Option<String>) {
+    const LIMIT: usize = 600;
+    let body = match body {
+        Some(text) if !text.is_empty() => text,
+        _ => return,
+    };
+    if body.chars().count() <= LIMIT {
+        kv("  content", &body);
+    } else {
+        let head: String = body.chars().take(LIMIT).collect();
+        kv("  content", &head);
+        para(
+            VALUE_COLUMN,
+            &style.dim(&format!("… {} more characters, full text in --bundle", body.chars().count() - LIMIT)),
+        );
+    }
 }
 
 fn check(style: &Style, name: &str, question: &str, layer: &Layer) {

@@ -23,8 +23,8 @@ USAGE
 
 OPTIONS
   --network <mainnet|testnet>   default: mainnet
-  --input <file>                the request you sent (HTTPS executions), or the body for `run`
-  --output <file>               the response you received (HTTPS executions)
+  --input <file|json>           the request you sent (HTTPS executions), or the body for `run`
+  --output <file|json>          the response you received (HTTPS executions)
   --payment-key <key>           OWNER:NONCE:KEY, for `run`; or $OUTLAYER_PAYMENT_KEY
   --collateral <file>           use your own copy of the Intel collateral
   --bundle <file>               save a self-contained evidence bundle to this path
@@ -125,8 +125,14 @@ fn read_file(path: &str) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
 }
 
-fn read_json(path: &str) -> Result<serde_json::Value, String> {
-    serde_json::from_str(&read_file(path)?).map_err(|e| format!("{path}: not valid JSON: {e}"))
+/// Accepts either a path or the JSON itself, because a small request body is not worth a temporary
+/// file. Nothing that starts with `{` or `[` is a plausible filename, so the two never collide.
+fn read_json(value: &str) -> Result<serde_json::Value, String> {
+    let trimmed = value.trim_start();
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        return serde_json::from_str(trimmed).map_err(|e| format!("not valid JSON: {e}"));
+    }
+    serde_json::from_str(&read_file(value)?).map_err(|e| format!("{value}: not valid JSON: {e}"))
 }
 
 fn run() -> Result<ExitCode, String> {
@@ -153,7 +159,7 @@ fn run() -> Result<ExitCode, String> {
     } else if args.short {
         render::short(&style, &verification);
     } else {
-        render::full(&style, &attestation, &verification, &network_name);
+        render::full(&style, &attestation, &verification, &evidence, &network_name);
     }
 
     // Only on request: a verification tool that drops files into whatever directory it was run
@@ -376,7 +382,7 @@ fn verify_bundle(args: &Args) -> Result<ExitCode, String> {
     } else if args.short {
         render::short(&style, &verification);
     } else {
-        render::full(&style, &bundle.attestation, &verification, &bundle.network);
+        render::full(&style, &bundle.attestation, &verification, &bundle.evidence(), &bundle.network);
     }
     Ok(exit_code(&verification))
 }

@@ -307,9 +307,7 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
         let computed = preimage::payload::hash_raw(raw);
         out.input_hash_computed = Some(computed.clone());
         out.input = Some(match &att.input_hash {
-            Some(stored) if *stored == computed => {
-                Layer::pass(format!("recovered from the chain, sha256 {computed}"))
-            }
+            Some(stored) if *stored == computed => Layer::pass("recovered from the transaction"),
             Some(stored) => Layer::fail(format!(
                 "the input recorded on chain hashes to {computed}, the attested value is {stored}"
             )),
@@ -319,7 +317,7 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
         let computed = preimage::payload::input_hash(input);
         out.input_hash_computed = Some(computed.clone());
         out.input = Some(match &att.input_hash {
-            Some(stored) if *stored == computed => Layer::pass(format!("sha256 {computed}")),
+            Some(stored) if *stored == computed => Layer::pass("the request you supplied"),
             Some(stored) => Layer::fail(format!(
                 "the supplied request hashes to {computed}, the attested value is {stored}"
             )),
@@ -330,7 +328,7 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
         let computed = preimage::payload::hash_raw(raw);
         out.output_hash_computed = Some(computed.clone());
         out.output = Some(if att.output_hash == computed {
-            Layer::pass(format!("recovered from the chain, sha256 {computed}"))
+            Layer::pass("recovered from the transaction")
         } else {
             Layer::fail(format!(
                 "the output recorded on chain hashes to {computed}, the attested value is {}",
@@ -341,7 +339,7 @@ pub fn verify(att: &Attestation, evidence: &Evidence) -> Verification {
         let computed = preimage::payload::output_hash(output);
         out.output_hash_computed = Some(computed.clone());
         out.output = Some(if att.output_hash == computed {
-            Layer::pass(format!("sha256 {computed}"))
+            Layer::pass("the response you supplied")
         } else {
             Layer::fail(format!(
                 "the supplied response hashes to {computed}, the attested value is {}",
