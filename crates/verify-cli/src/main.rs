@@ -28,6 +28,9 @@ OPTIONS
   --payment-key <key>           OWNER:NONCE:KEY, for `run`; or $OUTLAYER_PAYMENT_KEY
   --secrets-ref <acct/profile>  secrets the program may read, for `run`
   --collateral <file>           use your own copy of the Intel collateral
+  --api <url>                   coordinator to read the record and collateral from
+  --rpc <url>                   NEAR RPC for the on-chain approved-build list
+  --archival-rpc <url>          NEAR archival RPC for on-chain payloads
   --bundle <file>               save a self-contained evidence bundle to this path
   --offline                     no network at all; only valid with `bundle`
   --short                       one line: the verdict only
@@ -61,6 +64,9 @@ struct Args {
     payment_key: Option<String>,
     secrets_ref: Option<serde_json::Value>,
     collateral: Option<String>,
+    api: Option<String>,
+    rpc: Option<String>,
+    archival_rpc: Option<String>,
     bundle_path: Option<String>,
     offline: bool,
     short: bool,
@@ -90,6 +96,9 @@ fn parse_args() -> Result<Args, String> {
         payment_key: std::env::var("OUTLAYER_PAYMENT_KEY").ok(),
         secrets_ref: None,
         collateral: None,
+        api: None,
+        rpc: None,
+        archival_rpc: None,
         bundle_path: None,
         offline: false,
         short: false,
@@ -113,6 +122,9 @@ fn parse_args() -> Result<Args, String> {
             "--payment-key" => args.payment_key = Some(take()?),
             "--secrets-ref" => args.secrets_ref = Some(net::parse_secrets_ref(&take()?)?),
             "--collateral" => args.collateral = Some(read_file(&take()?)?),
+            "--api" => args.api = Some(take()?),
+            "--rpc" => args.rpc = Some(take()?),
+            "--archival-rpc" => args.archival_rpc = Some(take()?),
             "--bundle" => args.bundle_path = Some(take()?),
             "--offline" => args.offline = true,
             "--short" => args.short = true,
@@ -232,6 +244,17 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
         return Err("--offline only applies to `bundle`; the other commands must fetch the record".into());
     }
     let network = args.network;
+    // Defaults are ours; every one of them can be replaced, so none of them has to be trusted.
+    let mut at = net::Endpoints::defaults(network);
+    if let Some(url) = &args.api {
+        at.api = url.trim_end_matches('/').to_string();
+    }
+    if let Some(url) = &args.rpc {
+        at.rpc = url.clone();
+    }
+    if let Some(url) = &args.archival_rpc {
+        at.archival_rpc = url.clone();
+    }
     let network_name = match network {
         net::Network::Mainnet => "mainnet",
         net::Network::Testnet => "testnet",
@@ -246,14 +269,14 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
         "tx" => {
             require(&args.value, "a NEAR transaction hash")?;
             render::step(style, &format!("Fetching the record for transaction {}", args.value));
-            let att = net::fetch_attestation(network, net::Lookup::Transaction(&args.value))?;
+            let att = net::fetch_attestation(&at, net::Lookup::Transaction(&args.value))?;
             render::step_ok(style, &format!("record found: task {}", att.task_id));
             att
         }
         "call" => {
             require(&args.value, "an HTTPS call id")?;
             render::step(style, &format!("Fetching the record for call {}", args.value));
-            let att = net::fetch_attestation(network, net::Lookup::Call(&args.value))?;
+            let att = net::fetch_attestation(&at, net::Lookup::Call(&args.value))?;
             render::step_ok(style, &format!("record found: task {}", att.task_id));
             att
         }
@@ -263,7 +286,7 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
                 .parse()
                 .map_err(|_| "job takes a numeric task id".to_string())?;
             render::step(style, &format!("Fetching the record for task {id}"));
-            let att = net::fetch_attestation(network, net::Lookup::Task(id))?;
+            let att = net::fetch_attestation(&at, net::Lookup::Task(id))?;
             render::step_ok(style, "record found");
             att
         }
@@ -277,7 +300,7 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
 
             render::step(style, &format!("Calling {} on {network_name}", args.value));
             let outcome =
-                net::call_project(network, &args.value, &key, input, args.secrets_ref.clone())?;
+                net::call_project(&at, &args.value, &key, input, args.secrets_ref.clone())?;
             render::step_ok(style, &format!("call {} — {}", outcome.call_id, outcome.status));
             if let Some(error) = &outcome.error {
                 render::step_warn(style, &format!("the program reported: {error}"));
@@ -291,7 +314,7 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
 
             render::step(style, "Waiting for the worker to publish the attestation");
             let att = net::await_attestation(
-                network,
+                &at,
                 net::Lookup::Call(&outcome.call_id),
                 8,
                 std::time::Duration::from_secs(3),
@@ -310,7 +333,7 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
         match &attestation.caller_account_id {
             Some(caller) => {
                 render::step(style, "Recovering the request and response from the chain");
-                match net::fetch_chain_payloads(network, &tx, caller) {
+                match net::fetch_chain_payloads(&at, &tx, caller) {
                     Ok((input, output)) => {
                         match (&input, &output) {
                             (Some(_), Some(_)) => render::step_ok(style, "both recovered from the transaction"),
@@ -351,7 +374,7 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
                                 iso8601(attestation.timestamp)
                             ),
                         );
-                        match net::fetch_collateral(network, &unverified.fmspc, attestation.timestamp)
+                        match net::fetch_collateral(&at, &unverified.fmspc, attestation.timestamp)
                         {
                             Ok((body, info)) => {
                                 if info.covers_execution_time {
@@ -388,7 +411,7 @@ fn gather(args: &Args, style: &Style) -> Result<(core::Attestation, Evidence, St
                     network.register_contract()
                 ),
             );
-            match net::measurements_approved(network, &verified.measurements) {
+            match net::measurements_approved(&at, &verified.measurements) {
                 Ok(approved) => {
                     if approved {
                         render::step_ok(style, "the chain recognises this build");

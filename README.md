@@ -23,6 +23,32 @@ outlayer-verify run alice.near/my-agent --input '{"city":"Buenos Aires"}' --paym
 > next coordinator release. `job <task-id>` works on both today, and the tool says which case it hit
 > rather than returning a bare 404.
 
+## Where its inputs come from
+
+Two of the four come from us, and the honest framing is not "we give you nothing" but "nothing we
+give you can change the answer":
+
+| Input | Source | Why we cannot bend it |
+|---|---|---|
+| The attestation record, including the quote | our API | the quote is signed by Intel; alter a byte and Authenticity fails |
+| Intel collateral for the right period | our API | Intel-signed too, and archived from the register contract, so it is checkable against the chain |
+| The approved-build list | NEAR RPC | on-chain, not ours |
+| Input and output of an on-chain call | NEAR archival RPC | in the transaction, not ours |
+
+Intel's root certificate is compiled into the binary rather than fetched, which is what makes the
+first two rows safe: a chain that does not terminate at that key fails regardless of who served it.
+
+None of the defaults is load-bearing either. Point the chain reads at your own node, the record at a
+coordinator you host, the collateral at your own copy — the verdict should not move:
+
+```sh
+outlayer-verify tx <hash> --network testnet \
+  --rpc https://rpc.testnet.near.org \
+  --archival-rpc https://archival-rpc.testnet.near.org
+```
+
+If a verdict ever *does* change with the endpoint, that is a finding worth reporting.
+
 ## What it proves
 
 | Layer | Question | How |
@@ -67,8 +93,9 @@ outlayer-verify bundle <file.json>       re-check a saved bundle
 ```
 
 Options: `--network mainnet|testnet`, `--input <file|json>`, `--output <file|json>`,
-`--payment-key`, `--secrets-ref <account/profile>`, `--collateral <file>`, `--bundle <file>`,
-`--offline`, `--short`, `--json`, `--no-color`.
+`--payment-key`, `--secrets-ref <account/profile>`, `--collateral <file>`, `--api <url>`,
+`--rpc <url>`, `--archival-rpc <url>`, `--bundle <file>`, `--offline`, `--short`, `--json`,
+`--no-color`.
 
 Exit codes: `0` proven, `1` a layer failed, `2` unproven, `3` usage error. Suitable for CI.
 

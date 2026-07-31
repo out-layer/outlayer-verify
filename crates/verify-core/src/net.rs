@@ -23,6 +23,39 @@ pub enum Network {
     Testnet,
 }
 
+/// Where to fetch each kind of input, so none of the defaults is load-bearing.
+///
+/// A verifier that can only ask the endpoints its author chose is asking to be trusted about those
+/// endpoints. Every one of them is overridable: point the chain reads at your own NEAR node, point
+/// the record at a coordinator you host, supply the Intel collateral from your own copy. The
+/// verdict should not move — and if it does, that is a finding worth reporting.
+#[derive(Debug, Clone)]
+pub struct Endpoints {
+    pub network: Network,
+    pub api: String,
+    pub rpc: String,
+    pub archival_rpc: String,
+}
+
+impl Endpoints {
+    pub fn defaults(network: Network) -> Self {
+        Endpoints {
+            network,
+            api: network.api().to_string(),
+            rpc: network.rpc().to_string(),
+            archival_rpc: network.archival_rpc().to_string(),
+        }
+    }
+
+    pub fn register_contract(&self) -> &'static str {
+        self.network.register_contract()
+    }
+
+    pub fn outlayer_contract(&self) -> &'static str {
+        self.network.outlayer_contract()
+    }
+}
+
 impl Network {
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
@@ -120,11 +153,11 @@ pub enum Lookup<'a> {
     Task(i64),
 }
 
-pub fn fetch_attestation(network: Network, lookup: Lookup<'_>) -> Result<Attestation, String> {
+pub fn fetch_attestation(at: &Endpoints, lookup: Lookup<'_>) -> Result<Attestation, String> {
     let url = match lookup {
-        Lookup::Transaction(tx) => format!("{}/attestations/by-tx/{tx}", network.api()),
-        Lookup::Call(call) => format!("{}/attestations/by-call/{call}", network.api()),
-        Lookup::Task(id) => format!("{}/attestations/{id}", network.api()),
+        Lookup::Transaction(tx) => format!("{}/attestations/by-tx/{tx}", at.api),
+        Lookup::Call(call) => format!("{}/attestations/by-call/{call}", at.api),
+        Lookup::Task(id) => format!("{}/attestations/{id}", at.api),
     };
     let value = get_json(&url)?;
     serde_json::from_value(value).map_err(|e| format!("attestation record could not be parsed: {e}"))
@@ -136,7 +169,7 @@ pub fn fetch_attestation(network: Network, lookup: Lookup<'_>) -> Result<Attesta
 /// a separate step after the result is returned (observed on both networks). Giving up on the first
 /// 404 would report a perfectly good execution as unattested.
 pub fn await_attestation(
-    network: Network,
+    at: &Endpoints,
     lookup: Lookup<'_>,
     attempts: u32,
     gap: Duration,
@@ -144,7 +177,7 @@ pub fn await_attestation(
     let mut last = String::new();
     for attempt in 0..attempts.max(1) {
         match fetch_attestation(
-            network,
+            at,
             match lookup {
                 Lookup::Transaction(tx) => Lookup::Transaction(tx),
                 Lookup::Call(call) => Lookup::Call(call),
@@ -165,13 +198,13 @@ pub fn await_attestation(
 
 /// The Intel collateral that was valid when this execution ran.
 pub fn fetch_collateral(
-    network: Network,
+    at: &Endpoints,
     fmspc: &str,
     at_unix_seconds: i64,
 ) -> Result<(String, CollateralInfo), String> {
     let url = format!(
         "{}/public/collateral?fmspc={fmspc}&at={at_unix_seconds}",
-        network.api()
+        at.api
     );
     let value = get_json(&url)?;
     let body = value
@@ -207,7 +240,7 @@ fn string_at(value: &serde_json::Value, key: &str) -> String {
 
 /// Ask the register contract whether these measurements are an approved worker build.
 pub fn measurements_approved(
-    network: Network,
+    at: &Endpoints,
     measurements: &crate::Measurements,
 ) -> Result<bool, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
@@ -220,14 +253,14 @@ pub fn measurements_approved(
         "params": {
             "request_type": "call_function",
             "finality": "final",
-            "account_id": network.register_contract(),
+            "account_id": at.register_contract(),
             "method_name": "is_measurements_approved",
             "args_base64": STANDARD.encode(args.to_string()),
         }
     });
 
     let response: serde_json::Value = agent()
-        .post(network.rpc())
+        .post(&at.rpc)
         .send_json(request)
         .map_err(|e| format!("NEAR RPC: {e}"))?
         .into_json()
@@ -292,13 +325,13 @@ pub fn parse_secrets_ref(value: &str) -> Result<serde_json::Value, String> {
 }
 
 pub fn call_project(
-    network: Network,
+    at: &Endpoints,
     project: &str,
     payment_key: &str,
     input: serde_json::Value,
     secrets_ref: Option<serde_json::Value>,
 ) -> Result<CallOutcome, String> {
-    let url = format!("{}/call/{project}", network.api());
+    let url = format!("{}/call/{project}", at.api);
     let mut body = serde_json::json!({ "input": input, "async": false });
     if let Some(reference) = secrets_ref {
         body["secrets_ref"] = reference;
@@ -339,7 +372,7 @@ pub fn call_project(
 /// Read from an archival node: ordinary RPC nodes drop transactions older than a couple of epochs,
 /// and the whole point here is checking executions from months ago.
 pub fn fetch_chain_payloads(
-    network: Network,
+    at: &Endpoints,
     tx_hash: &str,
     sender_account_id: &str,
 ) -> Result<(Option<String>, Option<String>), String> {
@@ -353,7 +386,7 @@ pub fn fetch_chain_payloads(
     });
 
     let response: serde_json::Value = agent()
-        .post(network.archival_rpc())
+        .post(&at.archival_rpc)
         .send_json(request)
         .map_err(|e| format!("archival RPC: {e}"))?
         .into_json()
@@ -402,7 +435,7 @@ pub fn fetch_chain_payloads(
     let mut output = None;
     for receipt in receipts {
         let executor = receipt.pointer("/outcome/executor_id").and_then(|v| v.as_str());
-        if executor != Some(network.outlayer_contract()) {
+        if executor != Some(at.outlayer_contract()) {
             continue;
         }
         if let Some(encoded) = receipt
