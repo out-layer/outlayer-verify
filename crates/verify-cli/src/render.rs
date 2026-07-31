@@ -145,7 +145,7 @@ fn short_hex(value: &str) -> String {
 }
 
 /// The full report: the record, the quote, the collateral, then the three layers.
-pub fn full(style: &Style, att: &Attestation, v: &Verification, ev: &Evidence, network: &str) {
+pub fn full(style: &Style, att: &Attestation, v: &Verification, ev: &Evidence, network: &str, reproduce: &str) {
     section(style, "Record as published");
     kv("task id", &att.task_id.to_string());
     kv("task type", &att.task_type);
@@ -311,6 +311,7 @@ pub fn full(style: &Style, att: &Attestation, v: &Verification, ev: &Evidence, n
     }
 
     verdict_block(style, v);
+    proof_summary(style, att, v, network, reproduce);
     caveats(style, v, att);
 }
 
@@ -387,6 +388,75 @@ pub fn verdict_block(style: &Style, v: &Verification) {
         );
         println!("              not be answered. It is not evidence of wrongdoing, and it is not");
         println!("              evidence of correctness either.");
+    }
+}
+
+/// The verdict in values rather than in prose.
+///
+/// A one-line conclusion is not something a reader can put in a ticket, compare against next
+/// month's run, or hand to somebody else. This is the short list of figures the verdict rests on,
+/// each of which appears in full above, plus the command that reproduces the whole thing.
+fn proof_summary(style: &Style, att: &Attestation, v: &Verification, network: &str, reproduce: &str) {
+    println!("\n{}", style.head("  In values you can quote and re-check:"));
+
+    kv("  execution", &format!(
+        "task {} ({}) on {network}, {}",
+        v.task_id,
+        v.task_type,
+        crate::iso8601(att.timestamp)
+    ));
+    kv("  commitment", &match (&v.binding, &v.report_data_prefix) {
+        (Layer::Pass { .. }, _) => format!(
+            "{} — SHA-256 of the task fields, and the same 32 bytes found in report_data inside \
+             the Intel-signed quote",
+            v.expected_task_hash
+        ),
+        (_, Some(in_quote)) => format!(
+            "{} — SHA-256 of the published fields, but the quote commits to {in_quote}",
+            v.expected_task_hash
+        ),
+        (_, None) => format!(
+            "{} — SHA-256 of the published fields; the quote's own commitment could not be read",
+            v.expected_task_hash
+        ),
+    });
+    if let Some(m) = &v.measurements {
+        kv("  enclave", &format!(
+            "RTMR3 {} — {}",
+            m.rtmr3,
+            match v.identity {
+                Layer::Pass { .. } => format!("listed as approved by {}", register_of(&v.identity)),
+                _ => "not confirmed against the on-chain list".to_string(),
+            }
+        ));
+    }
+    if let Some(info) = &v.collateral {
+        kv("  collateral", &format!(
+            "sha256 {}{}, Intel TCB {}",
+            info.collateral_sha256,
+            info.read_from_chain_at_block
+                .map(|b| format!(" read from chain at block {b}"))
+                .unwrap_or_default(),
+            v.tcb_status.clone().unwrap_or_else(|| "unknown".into())
+        ));
+    }
+    if let Some(input) = &att.input_hash {
+        kv("  input → output", &format!("{input} → {}", att.output_hash));
+    } else {
+        kv("  output", &att.output_hash);
+    }
+    kv("  reproduce", reproduce);
+}
+
+/// The contract named in the identity verdict, so the summary does not restate it from a default.
+fn register_of(identity: &Layer) -> String {
+    match identity {
+        Layer::Pass { detail } => detail
+            .rsplit(' ')
+            .next()
+            .unwrap_or("the register contract")
+            .to_string(),
+        _ => "the register contract".to_string(),
     }
 }
 

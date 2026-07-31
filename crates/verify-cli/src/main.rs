@@ -212,7 +212,14 @@ fn run() -> Result<ExitCode, String> {
     } else if args.short {
         render::short(&style, &verification);
     } else {
-        render::full(&style, &attestation, &verification, &evidence, &network_name);
+        render::full(
+            &style,
+            &attestation,
+            &verification,
+            &evidence,
+            &network_name,
+            &reproduce_command(&args, &attestation, &network_name),
+        );
     }
 
     // Only on request: a verification tool that drops files into whatever directory it was run
@@ -483,9 +490,34 @@ fn verify_bundle(args: &Args) -> Result<ExitCode, String> {
     } else if args.short {
         render::short(&style, &verification);
     } else {
-        render::full(&style, &bundle.attestation, &verification, &bundle.evidence(), &bundle.network);
+        render::full(
+            &style,
+            &bundle.attestation,
+            &verification,
+            &bundle.evidence(),
+            &bundle.network,
+            &format!("outlayer-verify bundle {} --offline", args.value),
+        );
     }
     Ok(exit_code(&verification))
+}
+
+/// The command a reader can run to get this same report.
+///
+/// Not an echo of what was typed: `run` performed a paid call that must not be repeated blindly, so
+/// it resolves to the read-only lookup of the execution it produced.
+fn reproduce_command(args: &Args, att: &core::Attestation, network: &str) -> String {
+    let lookup = match (args.command.as_str(), &att.transaction_hash, &att.call_id) {
+        ("run", _, Some(call)) => format!("call {call}"),
+        ("tx", Some(tx), _) => format!("tx {tx}"),
+        ("call", _, Some(call)) => format!("call {call}"),
+        _ => format!("job {}", att.task_id),
+    };
+    let mut command = format!("outlayer-verify {lookup} --network {network}");
+    if att.transaction_hash.is_none() && (args.input.is_some() || args.command == "run") {
+        command.push_str(" --input <your request> --output <the response>");
+    }
+    command
 }
 
 fn require(value: &str, what: &str) -> Result<(), String> {
