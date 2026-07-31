@@ -277,6 +277,23 @@ pub fn full(style: &Style, att: &Attestation, v: &Verification, ev: &Evidence, n
         kv("  advisories", &v.advisory_ids.join(", "));
     }
 
+    if v.authenticity.is_pass() || v.tcb_status.is_some() {
+        para(VALUE_COLUMN, &style.dim("verified against this root, and nothing else:"));
+        kv("  Intel root CA", &format!(
+            "sha256 {} — CN=Intel SGX Root CA, compiled into this binary, never fetched",
+            outlayer_verify_core::quote::intel_root_fingerprint()
+        ));
+        para(VALUE_COLUMN + 2, &style.dim(
+            "compare it yourself: curl -s \
+             https://certificates.trustedservices.intel.com/Intel_SGX_Provisioning_Certification_RootCA.cer \
+             | shasum -a 256",
+        ));
+        para(VALUE_COLUMN, &style.dim("the eight signature checks that had to pass:"));
+        for (n, item) in outlayer_verify_core::quote::CHECKS_PERFORMED.iter().enumerate() {
+            para(VALUE_COLUMN + 2, &style.dim(&format!("{}. {item}", n + 1)));
+        }
+    }
+
     check(style, "Identity", "is this code approved on chain?", &v.identity);
 
     check(style, "Binding", "does the quote cover this execution?", &v.binding);

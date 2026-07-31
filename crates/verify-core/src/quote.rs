@@ -1,6 +1,40 @@
 //! The two things done with the quote itself: read the platform id out of it, and verify it.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+/// Intel's SGX Provisioning Certification Root CA, in DER, shipped inside this binary.
+///
+/// Everything a quote proves ultimately rests on this one key, so it is committed here rather than
+/// left implicit inside a dependency: a reader can hash the file, hash Intel's published copy, and
+/// see that the two agree. Nothing is fetched at runtime — a verifier that downloads its own trust
+/// anchor can be redirected, and then it verifies nothing.
+///
+/// Source: <https://certificates.trustedservices.intel.com/Intel_SGX_Provisioning_Certification_RootCA.cer>
+/// Subject: CN=Intel SGX Root CA, O=Intel Corporation, valid 2018-05-21 .. 2049-12-31.
+pub const INTEL_ROOT_CA_DER: &[u8] =
+    include_bytes!("Intel_SGX_Provisioning_Certification_RootCA.der");
+
+/// SHA-256 of the root above, for printing next to a verdict so the trust anchor is checkable
+/// rather than asserted.
+pub fn intel_root_fingerprint() -> String {
+    hex::encode(Sha256::digest(INTEL_ROOT_CA_DER))
+}
+
+/// What Intel's verifier actually checks, in the order the library performs it.
+///
+/// Reproduced from `dcap-qvl`'s own documentation of `verify_impl` rather than paraphrased, because
+/// a list of checks that does not match the code is worse than no list.
+pub const CHECKS_PERFORMED: [&str; 8] = [
+    "TCB Info signature: Intel root -> TCB signing certificate -> the TCB Info document",
+    "QE Identity signature: Intel root -> QE Identity signing certificate -> the document",
+    "PCK certificate chain: Intel root -> PCK CA -> the platform's PCK certificate",
+    "QE Report signature: the PCK certificate signs the quoting enclave's report",
+    "QE Report content: its hash covers the attestation key and auth data",
+    "QE Report policy: its fields satisfy the QE Identity policy",
+    "ISV Report signature: the attestation key signs the enclave's own report",
+    "Platform TCB match: the PCK certificate's CPU_SVN, PCE_SVN and FMSPC against TCB Info",
+];
 
 /// Measurements of the code that ran, decoded from a quote. Lowercase hex.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,7 +112,10 @@ pub fn verify(quote: &[u8], collateral_json: &str, now_secs: u64) -> Result<Veri
     let collateral: dcap_qvl::QuoteCollateralV3 = serde_json::from_str(collateral_json)
         .map_err(|e| format!("collateral could not be parsed: {e}"))?;
 
-    let report = dcap_qvl::verify::verify(quote, &collateral, now_secs)
+    // Verified against the root committed in this repository, not the one the library happens to
+    // embed, so the trust anchor is ours to show and yours to check.
+    let report = dcap_qvl::verify::QuoteVerifier::new(INTEL_ROOT_CA_DER.to_vec())
+        .verify_with::<dcap_qvl::configs::RustCryptoConfig>(quote, &collateral, now_secs)
         .map_err(|e| format!("{e:?}"))?;
 
     let measurements = measurements_of(&report.report)

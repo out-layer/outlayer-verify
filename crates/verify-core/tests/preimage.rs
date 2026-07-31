@@ -98,3 +98,15 @@ fn tampering_with_a_published_field_breaks_the_binding() {
     altered.caller_account_id = Some("attacker.near".to_string());
     assert_ne!(hex::encode(task_hash(&altered, Format::V1)), signed);
 }
+
+/// The trust anchor is the one thing in this crate that cannot be allowed to change quietly: swap
+/// it and every verdict becomes meaningless while every test still passes. Pinned by hash, matching
+/// Intel's published certificate at
+/// https://certificates.trustedservices.intel.com/Intel_SGX_Provisioning_Certification_RootCA.cer
+#[test]
+fn intel_root_ca_is_the_published_one() {
+    assert_eq!(
+        outlayer_verify_core::quote::intel_root_fingerprint(),
+        "44a0196b2b99f889b8e149e95b807a350e7424964399e885a7cbb8ccfab674d3"
+    );
+}
