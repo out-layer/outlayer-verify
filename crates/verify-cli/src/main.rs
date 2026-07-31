@@ -108,8 +108,8 @@ fn parse_args() -> Result<Args, String> {
         };
         match flag.as_str() {
             "--network" => args.network = net::Network::parse(&take()?)?,
-            "--input" => args.input = Some(read_json(&take()?)?),
-            "--output" => args.output = Some(read_json(&take()?)?),
+            "--input" => args.input = Some(read_json("--input", &take()?)?),
+            "--output" => args.output = Some(read_json("--output", &take()?)?),
             "--payment-key" => args.payment_key = Some(take()?),
             "--secrets-ref" => args.secrets_ref = Some(net::parse_secrets_ref(&take()?)?),
             "--collateral" => args.collateral = Some(read_file(&take()?)?),
@@ -131,12 +131,49 @@ fn read_file(path: &str) -> Result<String, String> {
 
 /// Accepts either a path or the JSON itself, because a small request body is not worth a temporary
 /// file. Nothing that starts with `{` or `[` is a plausible filename, so the two never collide.
-fn read_json(value: &str) -> Result<serde_json::Value, String> {
+fn read_json(flag: &str, value: &str) -> Result<serde_json::Value, String> {
     let trimmed = value.trim_start();
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        return serde_json::from_str(trimmed).map_err(|e| format!("not valid JSON: {e}"));
+    let (source, origin) = if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        (trimmed.to_string(), flag.to_string())
+    } else {
+        (read_file(value)?, format!("{flag} {value}"))
+    };
+    serde_json::from_str(&source).map_err(|e| json_error(&origin, &source, &e))
+}
+
+/// Point at the offending character instead of naming a column and leaving the reader to count.
+///
+/// A payload is usually pasted on a command line, where a stray brace is invisible and the shell
+/// has already mangled the quoting. "trailing characters at line 1 column 110" is technically the
+/// whole answer and practically useless.
+fn json_error(origin: &str, source: &str, error: &serde_json::Error) -> String {
+    const CONTEXT: usize = 44;
+
+    let line_no = error.line().max(1);
+    let column = error.column().max(1);
+    let line = source.lines().nth(line_no - 1).unwrap_or("");
+
+    // Window the line around the error so a long single-line body stays readable.
+    let chars: Vec<char> = line.chars().collect();
+    let at = (column - 1).min(chars.len());
+    let start = at.saturating_sub(CONTEXT);
+    let end = (at + CONTEXT).min(chars.len());
+    let head = if start > 0 { "…" } else { "" };
+    let tail = if end < chars.len() { "…" } else { "" };
+    let excerpt: String = chars[start..end].iter().collect();
+    let caret = " ".repeat(head.chars().count() + (at - start));
+
+    let mut message = format!(
+        "{origin} is not valid JSON: {error}\n\n  {head}{excerpt}{tail}\n  {caret}^ here"
+    );
+    if error.to_string().starts_with("trailing characters") {
+        message.push_str(
+            "\n\n  The value parsed as a complete JSON document before this point, so what \
+             follows is extra.\n  A stray closing brace part-way through the payload is the \
+             usual cause.",
+        );
     }
-    serde_json::from_str(&read_file(value)?).map_err(|e| format!("{value}: not valid JSON: {e}"))
+    message
 }
 
 fn run() -> Result<ExitCode, String> {
